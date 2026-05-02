@@ -1,0 +1,19 @@
+name: Keepalive ping
+
+# Hits /health every 6 days to prevent Supabase Free idle pause (7-day threshold)
+# and Render free tier spin-down.
+
+on:
+  schedule:
+    - cron: "0 12 */6 * *"   # every 6 days at 12:00 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: Ping /health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping API health endpoint
+        run: |
+          curl -fsS "${{ secrets.NEXT_PUBLIC_API_BASE_URL }}/health" \
+            -o /dev/null -w "HTTP %{http_code}\n"

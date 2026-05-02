@@ -1,0 +1,97 @@
+[project]
+name = "rat-ml"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  # Config / DB — ingest scripts write directly to Supabase
+  "pydantic-settings>=2.3",
+  "sqlalchemy[asyncio]>=2.0",
+  "asyncpg>=0.29",
+  # Data ingestion
+  "sodapy>=2.2",           # Socrata client (NYC Open Data)
+  "requests>=2.32",        # HTTP fallback / Census API
+  "census>=0.8",           # U.S. Census Bureau API wrapper (ACS data)
+  # Geospatial
+  "geopandas>=1.0",
+  "shapely>=2.0",
+  "pyproj>=3.6",
+  "libpysal>=4.10",
+  # Weather
+  "meteostat>=1.6",
+  # Data science core
+  "pandas>=2.2",
+  "numpy>=1.26",
+  # Text splitting (RAG corpus prep; no other LangChain)
+  "langchain-text-splitters>=0.3",
+  # Observability — ingest spans appear alongside inference traces in Phoenix
+  "opentelemetry-sdk>=1.26",
+  "opentelemetry-exporter-otlp-proto-grpc>=1.26",
+]
+
+[project.optional-dependencies]
+# Phase 2 — tabular models
+ml = [
+  "catboost>=1.2",
+  "lightgbm>=4.5",
+  "scikit-learn>=1.5",
+  "tabpfn>=2.0",
+]
+# Phase 2 — temporal models (heavy: pulls PyTorch)
+temporal = [
+  "darts[torch]>=0.31",
+  "pytorch-lightning>=2.4",
+  "transformers>=4.44",
+]
+# Phase 3 — satellite vision track (heavy: rasterio, stackstac)
+vision = [
+  "rasterio>=1.3",
+  "rioxarray>=0.17",
+  "pystac-client>=0.8",
+  "planetary-computer>=1.0",
+  "stackstac>=0.5",
+]
+# Notebooks
+notebooks = [
+  "jupyter>=1.1",
+  "matplotlib>=3.9",
+  "seaborn>=0.13",
+]
+dev = [
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Source layout: ml/src/rat_ml/ is the Python package.
+# Sub-packages: rat_ml.data (ingest), rat_ml.features, rat_ml.models, etc.
+# Scripts in ml/scripts/ are standalone entry points that import from rat_ml.
+[tool.hatch.build.targets.wheel]
+packages = ["src/rat_ml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# geopandas/shapely stubs are incomplete; relax for geospatial modules
+[[tool.mypy.overrides]]
+module = ["geopandas.*", "shapely.*", "libpysal.*", "meteostat.*", "sodapy.*", "census.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+  "integration: requires a live Supabase DB connection (skipped in CI without DATABASE_URL)",
+]
+testpaths = ["tests"]

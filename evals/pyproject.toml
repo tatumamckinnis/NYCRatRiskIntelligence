@@ -1,0 +1,46 @@
+[project]
+name = "rat-evals"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  # LLM judges
+  "anthropic>=0.34",    # Claude Sonnet 4.5 as primary eval judge
+  "openai>=1.40",       # Fallback judge; swap for Claude Opus if cost becomes an issue
+  # HTTP client for hitting /chat endpoint during eval runs
+  "httpx>=0.27",
+  # Data / config
+  "pydantic>=2.6",
+  "pydantic-settings>=2.3",
+  "pandas>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rat_evals"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["src/tests"]

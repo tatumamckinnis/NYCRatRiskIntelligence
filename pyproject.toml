@@ -1,0 +1,22 @@
+# Workspace root — not a package itself.
+# Run `uv sync --all-packages` to install all workspace members.
+
+[tool.uv.workspace]
+members = ["api", "ml", "evals"]
+
+# ---------------------------------------------------------------------------
+# Shared tool configuration (each member also declares these in its own
+# pyproject.toml so that per-package overrides are possible).
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.12"
+strict = true

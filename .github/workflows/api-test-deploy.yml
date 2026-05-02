@@ -1,0 +1,52 @@
+name: API — test and deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  pull_request:
+    paths:
+      - "api/**"
+      - "pyproject.toml"
+      - "uv.lock"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages
+
+      - name: Run linter
+        run: uv run ruff check api/
+
+      - name: Run type checker
+        run: uv run mypy api/src/
+
+      - name: Run unit tests (no DB required)
+        run: uv run pytest api/ -m "not integration" -v
+
+  deploy:
+    name: Deploy to Render
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy hook
+        # Set RENDER_DEPLOY_HOOK_URL in GitHub repo secrets.
+        run: |
+          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

@@ -1,0 +1,39 @@
+# Local development stack.
+# Does NOT include Postgres — the database is Supabase Free (remote).
+# Start with: docker compose up
+#
+# Services:
+#   api     — FastAPI backend (hot-reload via uvicorn --reload)
+#   phoenix — Arize Phoenix LLM observability UI (http://localhost:6006)
+
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://phoenix:6006/v1/traces
+      - OTEL_SERVICE_NAME=rat-api
+    volumes:
+      - ./api/src:/app/src   # hot-reload source mount
+      - ./api/alembic:/app/alembic
+    depends_on:
+      - phoenix
+    command: uvicorn rat_api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    ports:
+      - "6006:6006"   # Phoenix UI
+      - "4317:4317"   # OTLP gRPC collector
+    environment:
+      - PHOENIX_WORKING_DIR=/phoenix-data
+    volumes:
+      - phoenix-data:/phoenix-data
+
+volumes:
+  phoenix-data:

@@ -1,0 +1,41 @@
+name: RAG eval — nightly
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 06:00 UTC daily
+  workflow_dispatch:        # allow manual trigger
+
+jobs:
+  eval:
+    name: Run RAG eval suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages
+
+      - name: Run eval suite
+        # Hits the deployed /chat endpoint with the 50-item gold set.
+        # Results written to evals/results/<date>.json (gitignored).
+        # Fails the job if Recall@5 < 0.80 or faithfulness < 0.75.
+        run: uv run --package rat-evals python -m rat_evals.runners
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          NEXT_PUBLIC_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
+
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rag-eval-results-${{ github.run_id }}
+          path: evals/results/
