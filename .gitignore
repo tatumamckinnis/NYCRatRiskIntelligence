@@ -27,7 +27,8 @@ venv/
 *.ipynb~
 
 # Data and model artifacts — gitignored; use DVC or direct S3 if needed
-data/
+# Anchored to repo root so it doesn't swallow ml/src/rat_ml/data/ source package.
+/data/
 ml/artifacts/
 evals/results/
 
