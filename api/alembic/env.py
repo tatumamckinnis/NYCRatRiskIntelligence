@@ -1,8 +1,11 @@
 """Alembic migration environment.
 
-Migrations use DIRECT_DATABASE_URL (a direct Supabase connection, bypassing
-PgBouncer) because DDL statements (CREATE TABLE, ALTER TABLE, etc.) are not
-compatible with PgBouncer's transaction-pooling mode.
+Migrations use DIRECT_DATABASE_URL pointed at the Supabase SESSION pooler
+(same host as DATABASE_URL, port 5432 instead of 6543). The direct Postgres
+host (db.<ref>.supabase.co) only has an AAAA (IPv6) record on this project,
+which Python's asyncio does not fall back to reliably on macOS. The session
+pooler resolves to IPv4 and fully supports DDL (CREATE TABLE, CREATE INDEX,
+etc.) — only the transaction pooler (port 6543) blocks DDL.
 
 Driver note: the app uses asyncpg exclusively (spec §4.2). Alembic's async
 runner pattern (create_async_engine + connection.run_sync) lets Alembic drive
