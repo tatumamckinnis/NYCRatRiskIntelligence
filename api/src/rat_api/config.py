@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     otlp_json_sink: str = "logs/otlp_traces.jsonl"
     sentry_dsn: str = ""
 
+    # --- Model artifacts ---
+    model_artifacts_dir: str = "ml/artifacts"
+    model_name: str = "catboost"
+
     # --- Spend guard ---
     # Warn (log + Sentry alert) if cumulative daily LLM spend exceeds this.
     daily_spend_alert_usd: float = 1.0
