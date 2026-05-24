@@ -28,11 +28,12 @@ try:
 except ImportError:
     pass
 
-from meteostat import Daily, Point  # type: ignore[import-untyped]
+from meteostat import daily as Daily, Provider  # type: ignore[import-untyped]
 
-STATION_LAT = 40.7789
-STATION_LON = -73.9692
-STATION_ALT = 39  # metres
+# meteostat v2 station ID for Central Park / NYC Yorkville (40.7789, -73.9692).
+# Use the station ID directly; Point-based lookup creates a synthetic station
+# that has no provider data in v2.
+STATION_ID = "KNYC0"
 FETCH_START = datetime(2018, 1, 1)
 DD_BASE = 18.0  # degree-day base in °C
 SOURCE_NAME = "weather_daily"
@@ -49,14 +50,30 @@ def _compute_dd(tavg: float | None) -> tuple[float | None, float | None]:
 async def upsert_weather(conn: asyncpg.Connection, df) -> int:  # type: ignore[no-untyped-def]
     """Upsert Meteostat Daily DataFrame rows into raw.weather_daily."""
     upserted = 0
+    import pandas as pd  # noqa: PLC0415
+
+    def _float(val: object) -> float | None:
+        """Convert a value to float, returning None for any NA-like sentinel."""
+        if val is None:
+            return None
+        try:
+            if pd.isna(val):  # handles float NaN, pd.NA, pd.NaT
+                return None
+        except (TypeError, ValueError):
+            pass
+        try:
+            return float(val)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+
     async with conn.transaction():
         for idx, row in df.iterrows():
             obs_date: date = idx.date() if hasattr(idx, "date") else idx
-            tavg = float(row["tavg"]) if row.get("tavg") is not None and str(row.get("tavg")) != "nan" else None
-            tmin = float(row["tmin"]) if row.get("tmin") is not None and str(row.get("tmin")) != "nan" else None
-            tmax = float(row["tmax"]) if row.get("tmax") is not None and str(row.get("tmax")) != "nan" else None
-            prcp = float(row["prcp"]) if row.get("prcp") is not None and str(row.get("prcp")) != "nan" else None
-            snow = float(row["snow"]) if row.get("snow") is not None and str(row.get("snow")) != "nan" else None
+            tavg = _float(row.get("tavg"))
+            tmin = _float(row.get("tmin"))
+            tmax = _float(row.get("tmax"))
+            prcp = _float(row.get("prcp"))
+            snow = _float(row.get("snow"))
             hdd, cdd = _compute_dd(tavg)
 
             await conn.execute(
@@ -81,15 +98,25 @@ async def upsert_weather(conn: asyncpg.Connection, df) -> int:  # type: ignore[n
 
 
 async def run(db_url: str) -> None:
-    location = Point(STATION_LAT, STATION_LON, STATION_ALT)
     end = datetime.now()
 
     print(f"Fetching Meteostat daily data {FETCH_START.date()} → {end.date()} …")
-    df = Daily(location, FETCH_START, end).fetch()
+    # Provider.DAILY is meteostat's aggregated daily dataset for station KNYC0.
+    # Must be specified explicitly in v2; omitting providers causes fetch() to return None.
+    df = Daily(STATION_ID, FETCH_START, end, providers=[Provider.DAILY]).fetch()
 
-    if df.empty:
+    if df is None or df.empty:
         print("No data returned from Meteostat. Check station availability.")
         return
+
+    # meteostat v2 uses 'temp' (was 'tavg') and 'snwd' (was 'snow'); normalise column names.
+    rename = {}
+    if "temp" in df.columns and "tavg" not in df.columns:
+        rename["temp"] = "tavg"
+    if "snwd" in df.columns and "snow" not in df.columns:
+        rename["snwd"] = "snow"
+    if rename:
+        df = df.rename(columns=rename)
 
     # Drop rows where all weather values are NaN (station gaps).
     weather_cols = ["tavg", "tmin", "tmax", "prcp", "snow"]

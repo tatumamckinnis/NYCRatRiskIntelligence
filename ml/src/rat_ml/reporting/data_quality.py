@@ -1,0 +1,222 @@
+"""Data-quality report generation (T-11).
+
+Queries the live database and writes a dated markdown report to
+ml/artifacts/data_quality/<YYYY-MM-DD>.md covering:
+
+- Row counts per raw.* table
+- Date range coverage per source
+- Unmatched BBL counts (from bbl_join.emit_unmatched_report)
+- NULL rates for required features.nta_week_panel columns
+- Panel totals (row count + NTA count)
+
+Usage (from repo root)::
+
+    uv run --package rat-ml python ml/scripts/data_quality_report.py
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import date, datetime
+from pathlib import Path
+
+import asyncpg
+
+from rat_ml.data.bbl_join import get_unmatched_report
+
+# Directory written relative to the ml package root (two levels above this file).
+_ARTIFACTS_DIR = Path(__file__).parent.parent.parent.parent / "artifacts" / "data_quality"
+
+# Required panel columns that must never be NULL (per spec §10.1).
+_REQUIRED_PANEL_COLS = [
+    "nta_id",
+    "week_start",
+    "active_rat_signs_count",
+    "inspections_count",
+    "active_rat_signs_ind",
+]
+
+
+# ---------------------------------------------------------------------------
+# DB queries
+# ---------------------------------------------------------------------------
+
+async def _row_counts(conn: asyncpg.Connection) -> dict[str, int]:
+    """Return {table: row_count} for every raw.* table."""
+    tables = [
+        "raw.rodent_inspections",
+        "raw.complaints_nta_week",
+        "raw.restaurant_inspections",
+        "raw.dob_permits",
+        "raw.weather_daily",
+        "raw.pluto",
+        "raw.nta_boundaries",
+    ]
+    counts: dict[str, int] = {}
+    for table in tables:
+        try:
+            row = await conn.fetchrow(f"SELECT COUNT(*) AS n FROM {table}")  # noqa: S608
+            counts[table] = int(row["n"]) if row else 0
+        except asyncpg.exceptions.UndefinedTableError:
+            counts[table] = -1  # table doesn't exist yet
+    return counts
+
+
+async def _date_ranges(conn: asyncpg.Connection) -> dict[str, tuple[str, str]]:
+    """Return {source: (min_date, max_date)} for each raw source with a date column."""
+    queries: dict[str, str] = {
+        "raw.rodent_inspections": "SELECT MIN(inspection_date), MAX(inspection_date) FROM raw.rodent_inspections",
+        "raw.complaints_nta_week": "SELECT MIN(week_start), MAX(week_start) FROM raw.complaints_nta_week",
+        "raw.restaurant_inspections": "SELECT MIN(inspection_date), MAX(inspection_date) FROM raw.restaurant_inspections",
+        "raw.dob_permits": "SELECT MIN(issuance_date), MAX(issuance_date) FROM raw.dob_permits",
+        "raw.weather_daily": "SELECT MIN(date), MAX(date) FROM raw.weather_daily",
+    }
+    ranges: dict[str, tuple[str, str]] = {}
+    for source, sql in queries.items():
+        try:
+            row = await conn.fetchrow(sql)
+            if row and row[0] is not None:
+                lo = row[0].date() if isinstance(row[0], datetime) else row[0]
+                hi = row[1].date() if isinstance(row[1], datetime) else row[1]
+                ranges[source] = (str(lo), str(hi))
+            else:
+                ranges[source] = ("—", "—")
+        except asyncpg.exceptions.UndefinedTableError:
+            ranges[source] = ("(table missing)", "(table missing)")
+    return ranges
+
+
+async def _null_rates(conn: asyncpg.Connection) -> dict[str, float]:
+    """Return {col: null_pct} for required panel columns."""
+    col_exprs = ",\n    ".join(
+        f"ROUND(100.0 * COUNT(*) FILTER (WHERE {c} IS NULL) / NULLIF(COUNT(*), 0), 2) AS {c}"
+        for c in _REQUIRED_PANEL_COLS
+    )
+    sql = f"SELECT {col_exprs} FROM features.nta_week_panel"  # noqa: S608
+    try:
+        row = await conn.fetchrow(sql)
+        if row is None:
+            return {c: 0.0 for c in _REQUIRED_PANEL_COLS}
+        return {c: float(row[c] or 0) for c in _REQUIRED_PANEL_COLS}
+    except asyncpg.exceptions.UndefinedTableError:
+        return {c: -1.0 for c in _REQUIRED_PANEL_COLS}
+
+
+async def _panel_totals(conn: asyncpg.Connection) -> tuple[int, int]:
+    """Return (total_rows, distinct_nta_count) from features.nta_week_panel."""
+    try:
+        row = await conn.fetchrow(
+            "SELECT COUNT(*) AS rows, COUNT(DISTINCT nta_id) AS ntas"
+            " FROM features.nta_week_panel"
+        )
+        if row is None:
+            return 0, 0
+        return int(row["rows"]), int(row["ntas"])
+    except asyncpg.exceptions.UndefinedTableError:
+        return -1, -1
+
+
+# ---------------------------------------------------------------------------
+# Report rendering
+# ---------------------------------------------------------------------------
+
+def _render(
+    report_date: date,
+    counts: dict[str, int],
+    ranges: dict[str, tuple[str, str]],
+    bbl: dict[str, dict[str, int | float]],
+    null_rates: dict[str, float],
+    panel_rows: int,
+    panel_ntas: int,
+) -> str:
+    lines: list[str] = [
+        f"# Data Quality Report — {report_date}",
+        "",
+        "Generated by `ml/scripts/data_quality_report.py`.",
+        "",
+        "---",
+        "",
+        "## 1. Raw Table Row Counts",
+        "",
+        "| Table | Rows |",
+        "|---|---:|",
+    ]
+    for table, n in counts.items():
+        lines.append(f"| `{table}` | {n:,} |" if n >= 0 else f"| `{table}` | *(missing)* |")
+
+    lines += [
+        "",
+        "## 2. Date Range Coverage",
+        "",
+        "| Source | Earliest | Latest |",
+        "|---|---|---|",
+    ]
+    for source, (lo, hi) in ranges.items():
+        lines.append(f"| `{source}` | {lo} | {hi} |")
+
+    lines += [
+        "",
+        "## 3. Unmatched BBL Counts",
+        "",
+    ]
+    if bbl:
+        lines += [
+            "| Source | Total Rows | Unmatched BBL | Unmatched % |",
+            "|---|---:|---:|---:|",
+        ]
+        for source, rec in bbl.items():
+            lines.append(
+                f"| `{source}` | {rec['total']:,} | {rec['unmatched']:,}"
+                f" | {rec['unmatched_pct']:.2f}% |"
+            )
+    else:
+        lines.append("*No BBL unmatched data recorded in this run.*")
+
+    lines += [
+        "",
+        "## 4. Panel NULL Rates (required columns)",
+        "",
+        "| Column | NULL % |",
+        "|---|---:|",
+    ]
+    for col, pct in null_rates.items():
+        flag = " ⚠️" if pct > 0 else ""
+        lines.append(f"| `{col}` | {pct:.2f}%{flag} |")
+
+    lines += [
+        "",
+        "## 5. Panel Summary",
+        "",
+        f"| Metric | Value |",
+        f"|---|---:|",
+        f"| Total rows | {panel_rows:,} |",
+        f"| Distinct NTAs | {panel_ntas:,} |",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+async def run(db_url: str) -> Path:
+    """Generate the data-quality report and return the path to the written file."""
+    conn = await asyncpg.connect(db_url)
+    try:
+        counts = await _row_counts(conn)
+        ranges = await _date_ranges(conn)
+        null_rates = await _null_rates(conn)
+        panel_rows, panel_ntas = await _panel_totals(conn)
+    finally:
+        await conn.close()
+
+    bbl = get_unmatched_report()
+    today = date.today()
+    report = _render(today, counts, ranges, bbl, null_rates, panel_rows, panel_ntas)
+
+    out_dir = _ARTIFACTS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{today}.md"
+    out_path.write_text(report, encoding="utf-8")
+    return out_path
