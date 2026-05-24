@@ -14,7 +14,7 @@ from rat_api.config import get_settings
 from rat_api.ml.loader import load_models
 from rat_api.ml.features import get_all_nta_features_for_week, current_iso_week
 from rat_api.ml.predict import predict_risk
-from rat_api.routes import health, inspections, risk
+from rat_api.routes import health, inspections, narrative, risk
 
 
 def _compute_decile_thresholds(scores: list[float]) -> list[float]:
@@ -93,6 +93,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(risk.router)
     app.include_router(inspections.router)
+    app.include_router(narrative.router)
 
     return app
 
