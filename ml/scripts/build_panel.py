@@ -29,6 +29,7 @@ except ImportError:
     pass
 
 from rat_ml.features.panel import run
+from rat_ml.reporting.data_quality import run as run_dq_report
 
 
 async def main() -> None:
@@ -39,6 +40,10 @@ async def main() -> None:
     print("Building features.nta_week_panel …")
     n = await run(db_url)
     print(f"Done. rows upserted={n}")
+
+    print("Generating data quality report …")
+    path = await run_dq_report(db_url)
+    print(f"Report written to {path}")
 
 
 if __name__ == "__main__":
