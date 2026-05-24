@@ -18,9 +18,12 @@ services:
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://phoenix:6006/v1/traces
       - OTEL_SERVICE_NAME=rat-api
+      - MODEL_ARTIFACTS_DIR=/app/ml/artifacts
+      - MODEL_NAME=catboost
     volumes:
-      - ./api/src:/app/src   # hot-reload source mount
+      - ./api/src:/app/src        # hot-reload source mount
       - ./api/alembic:/app/alembic
+      - ./ml/artifacts:/app/ml/artifacts:ro  # model artifacts (read-only)
     depends_on:
       - phoenix
     command: uvicorn rat_api.main:app --host 0.0.0.0 --port 8000 --reload
