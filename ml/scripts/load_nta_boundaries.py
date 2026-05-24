@@ -47,8 +47,10 @@ import requests
 #              open-data/census-download-requests.page
 # ---------------------------------------------------------------------------
 DEFAULT_NTA_URL = (
-    "https://data.cityofnewyork.us/api/geospatial/9nt8-h7nd"
-    "?method=export&type=GeoJSON"
+    # Socrata rows.geojson endpoint — the legacy ?method=export&type=GeoJSON
+    # endpoint began returning 400 in 2026; this replacement is confirmed working
+    # and returns all 262 NTA 2020 features in a single request.
+    "https://data.cityofnewyork.us/api/views/9nt8-h7nd/rows.geojson"
 )
 DEFAULT_CROSSWALK_URL = (
     "https://www.nyc.gov/assets/planning/download/office/data-maps/"
@@ -168,8 +170,19 @@ async def main(nta_url: str, crosswalk_url: str) -> None:
     n = await upsert_boundaries(gdf, db_url)
     print(f"  Upserted {n} rows into raw.nta_boundaries")
 
-    # 4. Download crosswalk for tract_crosswalk.py.
-    download_crosswalk(crosswalk_url, DATA_DIR)
+    # 4. Download crosswalk for tract_crosswalk.py (needed for T-12 ACS allocation).
+    # The original DCP URL is 404 as of 2026; a replacement has not been confirmed.
+    # This step is non-fatal — NTA boundary loading above is the critical output.
+    try:
+        download_crosswalk(crosswalk_url, DATA_DIR)
+    except Exception as exc:
+        print(
+            f"WARNING: crosswalk download failed ({exc}). "
+            "The NTA boundaries loaded successfully. "
+            "The crosswalk file is only required for T-12 (ACS income allocation); "
+            "resolve the source URL before running that task.",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":
