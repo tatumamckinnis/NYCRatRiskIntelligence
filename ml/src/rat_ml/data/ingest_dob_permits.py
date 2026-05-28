@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from datetime import date as _date
 
 import asyncpg
 
@@ -28,9 +29,10 @@ except ImportError:
 from rat_ml.data._socrata import get_client, paginate
 from rat_ml.data.bbl_join import emit_unmatched_report, normalize_bbl
 
-DATASETS: list[tuple[str, str]] = [
-    ("ipu4-2q9a", "dob_permits_now"),
-    ("rbx6-tga4", "dob_permits_legacy"),
+# (dataset_id, source_name, date_column_in_socrata)
+DATASETS: list[tuple[str, str, str]] = [
+    ("ipu4-2q9a", "dob_permits_now", "issuance_date"),
+    ("rbx6-tga4", "dob_permits_legacy", "issued_date"),
 ]
 EPOCH = "1990-01-01"
 
@@ -81,18 +83,40 @@ def _parse_row(row: dict, source: str) -> dict | None:
     if not permit_key:
         return None
 
+    def _to_date(s: str | None) -> _date | None:
+        if not s:
+            return None
+        try:
+            return _date.fromisoformat(s[:10])
+        except (ValueError, TypeError):
+            return None
+
     return {
         "permit_key": permit_key,
         "bbl": bbl,
         "raw_bbl_missing": bool(raw_bbl and bbl is None),
         "bin": row.get("bin") or row.get("bin_"),
         "borough": row.get("borough") or row.get("boro"),
-        "issuance_date": issuance[:10],
-        "expiration_date": (row.get("expiration_date") or "")[:10] or None,
+        "issuance_date": _to_date(issuance),
+        "expiration_date": _to_date(row.get("expiration_date")),
         "job_type": row.get("job_type") or row.get("job__type"),
         "work_type": row.get("work_type"),
         "source": "now" if "now" in source else "legacy",
     }
+
+
+_SQL = """
+    INSERT INTO raw.dob_permits (
+        permit_key, bbl, bin, borough,
+        issuance_date, expiration_date, job_type, work_type, source
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ON CONFLICT (permit_key) DO UPDATE SET
+        bbl             = EXCLUDED.bbl,
+        expiration_date = EXCLUDED.expiration_date,
+        job_type        = EXCLUDED.job_type,
+        work_type       = EXCLUDED.work_type
+"""
+_CHUNK = 1000
 
 
 async def upsert_batch(
@@ -102,30 +126,21 @@ async def upsert_batch(
     valid = [p for p in parsed if p is not None]
     unmatched = sum(1 for p in valid if p["raw_bbl_missing"])
 
-    async with conn.transaction():
-        for p in valid:
-            await conn.execute(
-                """
-                INSERT INTO raw.dob_permits (
-                    permit_key, bbl, bin, borough,
-                    issuance_date, expiration_date, job_type, work_type, source
-                ) VALUES ($1, $2, $3, $4, $5::date, $6::date, $7, $8, $9)
-                ON CONFLICT (permit_key) DO UPDATE SET
-                    bbl             = EXCLUDED.bbl,
-                    expiration_date = EXCLUDED.expiration_date,
-                    job_type        = EXCLUDED.job_type,
-                    work_type       = EXCLUDED.work_type
-                """,
-                p["permit_key"], p["bbl"], p["bin"], p["borough"],
-                p["issuance_date"], p["expiration_date"],
-                p["job_type"], p["work_type"], p["source"],
-            )
+    for i in range(0, len(valid), _CHUNK):
+        chunk = valid[i : i + _CHUNK]
+        args = [
+            (p["permit_key"], p["bbl"], p["bin"], p["borough"],
+             p["issuance_date"], p["expiration_date"],
+             p["job_type"], p["work_type"], p["source"])
+            for p in chunk
+        ]
+        await conn.executemany(_SQL, args)
 
     return len(valid), unmatched
 
 
 async def ingest_dataset(
-    conn: asyncpg.Connection, dataset_id: str, source: str
+    conn: asyncpg.Connection, dataset_id: str, source: str, date_col: str
 ) -> None:
     cursor = await _get_cursor(conn, source)
     print(f"[{source}] fetching since {cursor}")
@@ -136,15 +151,15 @@ async def ingest_dataset(
     for batch, offset in paginate(
         client,
         dataset_id,
-        where=f"issuance_date >= '{cursor}'",
-        order="issuance_date ASC",
+        where=f"{date_col} >= '{cursor}'",
+        order=f"{date_col} ASC",
     ):
         n, u = await upsert_batch(conn, batch, source)
         total_rows += n
         total_unmatched += u
 
         for row in batch:
-            d = row.get("issuance_date", "")
+            d = row.get(date_col, "")
             if d > latest:
                 latest = d
 
@@ -157,15 +172,16 @@ async def ingest_dataset(
 
 async def run(db_url: str) -> None:
     conn = await asyncpg.connect(db_url)
-    for dataset_id, source in DATASETS:
-        await ingest_dataset(conn, dataset_id, source)
+    await conn.execute("SET statement_timeout = 0")
+    for dataset_id, source, date_col in DATASETS:
+        await ingest_dataset(conn, dataset_id, source, date_col)
     await conn.close()
 
 
 async def main() -> None:
-    db_url = os.environ.get("DATABASE_URL")
+    db_url = os.environ.get("DIRECT_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not db_url:
-        sys.exit("DATABASE_URL is not set.")
+        sys.exit("DIRECT_DATABASE_URL or DATABASE_URL is not set.")
     await run(db_url)
 
 

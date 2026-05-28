@@ -124,15 +124,16 @@ async def run(db_url: str) -> None:
     print(f"  Fetched {len(df)} daily records")
 
     conn = await asyncpg.connect(db_url)
+    await conn.execute("SET statement_timeout = 0")
     n = await upsert_weather(conn, df)
     print(f"Done. upserted={n}")
     await conn.close()
 
 
 async def main() -> None:
-    db_url = os.environ.get("DATABASE_URL")
+    db_url = os.environ.get("DIRECT_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not db_url:
-        sys.exit("DATABASE_URL is not set.")
+        sys.exit("DIRECT_DATABASE_URL or DATABASE_URL is not set.")
     await run(db_url)
 
 

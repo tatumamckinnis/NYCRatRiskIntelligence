@@ -102,6 +102,13 @@ def _parse_df(df: pd.DataFrame) -> tuple[list[dict], int]:
             except (ValueError, TypeError):
                 return None
 
+        def _float(col_name: str) -> float | None:
+            v = r.get(col_name)
+            try:
+                return float(v) if v and str(v).strip() else None
+            except (ValueError, TypeError):
+                return None
+
         rows.append({
             "bbl": effective_bbl,
             "unitsres": _int("unitsres"),
@@ -111,33 +118,40 @@ def _parse_df(df: pd.DataFrame) -> tuple[list[dict], int]:
             "bldgclass": str(r.get("bldgclass", "") or "").strip() or None,
             "appbbl": appbbl,
             "nta2020": str(r.get(nta_col, "") or "").strip() or None if nta_col else None,
+            "latitude": _float("latitude"),
+            "longitude": _float("longitude"),
         })
 
     return rows, unmatched
 
 
+_SQL = """
+    INSERT INTO raw.pluto (
+        bbl, unitsres, unitstotal, yearbuilt,
+        landuse, bldgclass, appbbl, nta2020, latitude, longitude
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (bbl) DO UPDATE SET
+        unitsres   = EXCLUDED.unitsres,
+        unitstotal = EXCLUDED.unitstotal,
+        yearbuilt  = EXCLUDED.yearbuilt,
+        landuse    = EXCLUDED.landuse,
+        bldgclass  = EXCLUDED.bldgclass,
+        appbbl     = EXCLUDED.appbbl,
+        nta2020    = EXCLUDED.nta2020,
+        latitude   = EXCLUDED.latitude,
+        longitude  = EXCLUDED.longitude,
+        ingested_at= NOW()
+"""
+
+
 async def upsert_rows(conn: asyncpg.Connection, rows: list[dict]) -> None:
-    async with conn.transaction():
-        for p in rows:
-            await conn.execute(
-                """
-                INSERT INTO raw.pluto (
-                    bbl, unitsres, unitstotal, yearbuilt,
-                    landuse, bldgclass, appbbl, nta2020
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                ON CONFLICT (bbl) DO UPDATE SET
-                    unitsres   = EXCLUDED.unitsres,
-                    unitstotal = EXCLUDED.unitstotal,
-                    yearbuilt  = EXCLUDED.yearbuilt,
-                    landuse    = EXCLUDED.landuse,
-                    bldgclass  = EXCLUDED.bldgclass,
-                    appbbl     = EXCLUDED.appbbl,
-                    nta2020    = EXCLUDED.nta2020,
-                    ingested_at= NOW()
-                """,
-                p["bbl"], p["unitsres"], p["unitstotal"], p["yearbuilt"],
-                p["landuse"], p["bldgclass"], p["appbbl"], p["nta2020"],
-            )
+    args = [
+        (p["bbl"], p["unitsres"], p["unitstotal"], p["yearbuilt"],
+         p["landuse"], p["bldgclass"], p["appbbl"], p["nta2020"],
+         p["latitude"], p["longitude"])
+        for p in rows
+    ]
+    await conn.executemany(_SQL, args)
 
 
 async def run(db_url: str, url: str) -> None:
@@ -146,6 +160,7 @@ async def run(db_url: str, url: str) -> None:
     print(f"  Parsed {len(rows):,} valid rows, {unmatched} unmatched BBL")
 
     conn = await asyncpg.connect(db_url)
+    await conn.execute("SET statement_timeout = 0")
     total = 0
     for i in range(0, len(rows), BATCH_SIZE):
         batch = rows[i : i + BATCH_SIZE]
@@ -153,15 +168,31 @@ async def run(db_url: str, url: str) -> None:
         total += len(batch)
         print(f"  upserted {total:,} / {len(rows):,}")
 
+    # Populate nta2020 via PostGIS spatial join against NTA 2020 boundaries.
+    print("Populating nta2020 via spatial join …")
+    result = await conn.execute("""
+        UPDATE raw.pluto p
+        SET nta2020 = nb.nta_id
+        FROM raw.nta_boundaries nb
+        WHERE p.nta2020 IS NULL
+          AND p.latitude IS NOT NULL
+          AND p.longitude IS NOT NULL
+          AND ST_Within(
+              ST_SetSRID(ST_Point(p.longitude, p.latitude), 4326),
+              nb.geom
+          )
+    """)
+    print(f"  nta2020 set for {result.split()[-1]} lots")
+
     emit_unmatched_report(SOURCE_NAME, total=len(rows) + unmatched, unmatched=unmatched)
     print(f"Done. upserted={total:,}  unmatched_bbl={unmatched}")
     await conn.close()
 
 
 async def main() -> None:
-    db_url = os.environ.get("DATABASE_URL")
+    db_url = os.environ.get("DIRECT_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not db_url:
-        sys.exit("DATABASE_URL is not set.")
+        sys.exit("DIRECT_DATABASE_URL or DATABASE_URL is not set.")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default=DEFAULT_URL, help="PLUTO CSV download URL")
     args = parser.parse_args()

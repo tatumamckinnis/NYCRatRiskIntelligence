@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from datetime import date as _date
 
 import asyncpg
 
@@ -40,7 +41,13 @@ def _parse_row(row: dict) -> dict | None:
     if not camis or not insp_date:
         return None
 
-    record_id = f"{camis}_{insp_date[:10]}_{violation_code}"
+    insp_date_str = insp_date[:10]
+    try:
+        insp_date_obj: _date | None = _date.fromisoformat(insp_date_str)
+    except (ValueError, TypeError):
+        insp_date_obj = None
+
+    record_id = f"{camis}_{insp_date_str}_{violation_code}"
     raw_bbl = row.get("bbl")
     bbl = normalize_bbl(raw_bbl)
 
@@ -54,7 +61,7 @@ def _parse_row(row: dict) -> dict | None:
         "camis": str(camis),
         "bbl": bbl,
         "raw_bbl_missing": bool(raw_bbl and bbl is None),
-        "inspection_date": insp_date[:10],
+        "inspection_date": insp_date_obj,
         "violation_code": violation_code or None,
         "is_pest_violation": violation_code in PEST_CODES,
         "grade": row.get("grade"),
@@ -62,35 +69,40 @@ def _parse_row(row: dict) -> dict | None:
     }
 
 
+_SQL = """
+    INSERT INTO raw.restaurant_inspections (
+        record_id, camis, bbl, inspection_date,
+        violation_code, is_pest_violation, grade, score
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT (record_id) DO UPDATE SET
+        bbl              = EXCLUDED.bbl,
+        is_pest_violation= EXCLUDED.is_pest_violation,
+        grade            = EXCLUDED.grade,
+        score            = EXCLUDED.score
+"""
+_CHUNK = 1000
+
+
 async def upsert_batch(conn: asyncpg.Connection, rows: list[dict]) -> tuple[int, int]:
     parsed = [_parse_row(r) for r in rows]
     valid = [p for p in parsed if p is not None]
     unmatched = sum(1 for p in valid if p["raw_bbl_missing"])
 
-    async with conn.transaction():
-        for p in valid:
-            await conn.execute(
-                """
-                INSERT INTO raw.restaurant_inspections (
-                    record_id, camis, bbl, inspection_date,
-                    violation_code, is_pest_violation, grade, score
-                ) VALUES ($1, $2, $3, $4::date, $5, $6, $7, $8)
-                ON CONFLICT (record_id) DO UPDATE SET
-                    bbl              = EXCLUDED.bbl,
-                    is_pest_violation= EXCLUDED.is_pest_violation,
-                    grade            = EXCLUDED.grade,
-                    score            = EXCLUDED.score
-                """,
-                p["record_id"], p["camis"], p["bbl"],
-                p["inspection_date"], p["violation_code"],
-                p["is_pest_violation"], p["grade"], p["score"],
-            )
+    for i in range(0, len(valid), _CHUNK):
+        chunk = valid[i : i + _CHUNK]
+        args = [
+            (p["record_id"], p["camis"], p["bbl"], p["inspection_date"],
+             p["violation_code"], p["is_pest_violation"], p["grade"], p["score"])
+            for p in chunk
+        ]
+        await conn.executemany(_SQL, args)
 
     return len(valid), unmatched
 
 
 async def run(db_url: str) -> None:
     conn = await asyncpg.connect(db_url)
+    await conn.execute("SET statement_timeout = 0")
     client = get_client()
     total_rows = total_unmatched = 0
 
@@ -106,9 +118,9 @@ async def run(db_url: str) -> None:
 
 
 async def main() -> None:
-    db_url = os.environ.get("DATABASE_URL")
+    db_url = os.environ.get("DIRECT_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not db_url:
-        sys.exit("DATABASE_URL is not set.")
+        sys.exit("DIRECT_DATABASE_URL or DATABASE_URL is not set.")
     await run(db_url)
 
 

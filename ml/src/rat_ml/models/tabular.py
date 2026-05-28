@@ -416,9 +416,12 @@ class LRTrainer(BaseTabularTrainer):
         self.C = C
 
     def _make_estimator(self) -> Any:
-        return LogisticRegression(
-            C=self.C,
-            max_iter=1000,
-            solver="lbfgs",
-            random_state=42,
-        )
+        from sklearn.impute import SimpleImputer  # noqa: PLC0415
+        from sklearn.pipeline import Pipeline  # noqa: PLC0415
+        from sklearn.preprocessing import StandardScaler  # noqa: PLC0415
+
+        return Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("scaler", StandardScaler()),
+            ("lr", LogisticRegression(C=self.C, max_iter=1000, solver="lbfgs", random_state=42)),
+        ])

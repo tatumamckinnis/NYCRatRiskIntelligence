@@ -13,11 +13,13 @@ class Settings(BaseSettings):
     direct_database_url: str
 
     # --- Supabase ---
-    supabase_url: str
-    supabase_anon_key: str
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
 
     # --- LLM / embeddings ---
     anthropic_api_key: str = ""
+    gemini_api_key: str = ""
+    groq_api_key: str = ""
     voyageai_api_key: str = ""
     # Cohere is optional; enables Rerank 3.5 ablation when present.
     cohere_api_key: str = ""

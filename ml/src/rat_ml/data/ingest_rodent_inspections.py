@@ -58,7 +58,8 @@ def _parse_row(row: dict) -> dict | None:
     Returns None for rows missing the primary key.
     """
     inspection_id = (
-        row.get("inspectionid")
+        row.get("job_ticket_or_work_order_id")
+        or row.get("inspectionid")
         or row.get("inspection_id")
         or row.get("unique_key")
     )
@@ -68,14 +69,21 @@ def _parse_row(row: dict) -> dict | None:
     raw_bbl = row.get("bbl")
     bbl = normalize_bbl(raw_bbl)
 
-    lat = row.get("latitude") or row.get("y_coordinate")
-    lon = row.get("longitude") or row.get("x_coordinate")
+    lat = row.get("latitude") or row.get("y_coordinate") or row.get("y_coord")
+    lon = row.get("longitude") or row.get("x_coordinate") or row.get("x_coord")
     geom_wkt = f"POINT({lon} {lat})" if lat and lon else None
 
-    insp_date = row.get("inspectiondate") or row.get("inspection_date")
+    from datetime import datetime as _dt  # noqa: PLC0415
+    _raw_date = row.get("inspection_date") or row.get("inspectiondate")
+    try:
+        insp_date = _dt.fromisoformat(_raw_date).date() if _raw_date else None
+    except (ValueError, TypeError):
+        insp_date = None
 
     try:
-        borough = int(row["boro"]) if row.get("boro") else None
+        borough = int(row["boro_code"]) if row.get("boro_code") else (
+            int(row["boro"]) if row.get("boro") else None
+        )
     except (ValueError, TypeError):
         borough = None
 
@@ -101,33 +109,38 @@ def _parse_row(row: dict) -> dict | None:
     }
 
 
+_SQL = """
+    INSERT INTO raw.rodent_inspections (
+        inspection_id, inspection_date, bbl, bin, borough,
+        block, lot, result, inspection_type, job_progress, geom
+    ) VALUES (
+        $1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10,
+        CASE WHEN $11::text IS NOT NULL
+             THEN ST_SetSRID(ST_GeomFromText($11::text), 4326)
+        END
+    )
+    ON CONFLICT (inspection_id) DO UPDATE SET
+        inspection_date  = EXCLUDED.inspection_date,
+        bbl              = EXCLUDED.bbl,
+        result           = EXCLUDED.result,
+        inspection_type  = EXCLUDED.inspection_type,
+        job_progress     = EXCLUDED.job_progress,
+        geom             = EXCLUDED.geom
+"""
+
+_CHUNK = 1000  # rows per executemany call
+
+
 async def upsert_batch(conn: asyncpg.Connection, rows: list[dict]) -> tuple[int, int]:
-    """Upsert a batch of parsed rows. Returns (total, unmatched_bbl)."""
+    """Upsert a batch of parsed rows using executemany. Returns (total, unmatched_bbl)."""
     parsed = [_parse_row(r) for r in rows]
     valid = [p for p in parsed if p is not None]
     unmatched = sum(1 for p in valid if p["raw_bbl_missing"])
 
-    async with conn.transaction():
-        for p in valid:
-            await conn.execute(
-                """
-                INSERT INTO raw.rodent_inspections (
-                    inspection_id, inspection_date, bbl, bin, borough,
-                    block, lot, result, inspection_type, job_progress, geom
-                ) VALUES (
-                    $1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10,
-                    CASE WHEN $11 IS NOT NULL
-                         THEN ST_SetSRID(ST_GeomFromText($11), 4326)
-                    END
-                )
-                ON CONFLICT (inspection_id) DO UPDATE SET
-                    inspection_date  = EXCLUDED.inspection_date,
-                    bbl              = EXCLUDED.bbl,
-                    result           = EXCLUDED.result,
-                    inspection_type  = EXCLUDED.inspection_type,
-                    job_progress     = EXCLUDED.job_progress,
-                    geom             = EXCLUDED.geom
-                """,
+    for i in range(0, len(valid), _CHUNK):
+        chunk = valid[i : i + _CHUNK]
+        args = [
+            (
                 p["inspection_id"],
                 p["inspection_date"],
                 p["bbl"],
@@ -140,6 +153,9 @@ async def upsert_batch(conn: asyncpg.Connection, rows: list[dict]) -> tuple[int,
                 p["job_progress"],
                 p["geom_wkt"],
             )
+            for p in chunk
+        ]
+        await conn.executemany(_SQL, args)
 
     return len(valid), unmatched
 
@@ -148,6 +164,8 @@ async def run(db_url: str) -> None:
     tracer = _setup_otel()
     client = get_client()
     conn = await asyncpg.connect(db_url)
+    # Disable statement timeout for bulk ingest — default Supabase limit is too short.
+    await conn.execute("SET statement_timeout = 0")
 
     # Try primary dataset; fall back if Socrata returns an error.
     try:
@@ -158,7 +176,7 @@ async def run(db_url: str) -> None:
         for batch, offset in paginate(
             client,
             dataset_id,
-            where=f"inspectiondate >= '{cutoff}'",
+            where=f"inspection_date >= '{cutoff}'",
             order=":id",
         ):
             with tracer.start_as_current_span("ingest.rodent_inspections.batch") as span:
@@ -173,6 +191,8 @@ async def run(db_url: str) -> None:
                 print(f"  offset={offset:>7}  upserted={n}  unmatched_bbl={u}")
 
     except Exception:  # noqa: BLE001
+        import traceback  # noqa: PLC0415
+        traceback.print_exc(file=sys.stderr)
         print(f"Primary dataset {PRIMARY_DATASET} failed, trying fallback {FALLBACK_DATASET}",
               file=sys.stderr)
         dataset_id = FALLBACK_DATASET
@@ -182,7 +202,7 @@ async def run(db_url: str) -> None:
         for batch, offset in paginate(
             client,
             dataset_id,
-            where=f"inspectiondate >= '{cutoff}'",
+            where=f"inspection_date >= '{cutoff}'",
             order=":id",
         ):
             with tracer.start_as_current_span("ingest.rodent_inspections.batch") as span:
@@ -200,9 +220,9 @@ async def run(db_url: str) -> None:
 
 
 async def main() -> None:
-    db_url = os.environ.get("DATABASE_URL")
+    db_url = os.environ.get("DIRECT_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not db_url:
-        sys.exit("DATABASE_URL is not set.")
+        sys.exit("DIRECT_DATABASE_URL or DATABASE_URL is not set.")
     await run(db_url)
 
 

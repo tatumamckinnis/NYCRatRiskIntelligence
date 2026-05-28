@@ -48,10 +48,14 @@ labels AS (
         b.nta_id,
         date_trunc('week', i.inspection_date)::date AS week_start,
         COUNT(*)                                           AS inspections_count,
-        COUNT(*) FILTER (WHERE i.result = 'Active Rat Signs') AS active_rat_signs_count
+        COUNT(*) FILTER (WHERE i.result IN (
+            'Failed for Rat Activity',
+            'Failed for Rat Activity and Other Reason'
+        ))                                                 AS active_rat_signs_count
     FROM raw.rodent_inspections i
     JOIN raw.nta_boundaries b ON ST_Within(i.geom, b.geom)
     WHERE i.geom IS NOT NULL
+      AND i.inspection_date <= CURRENT_DATE
     GROUP BY b.nta_id, date_trunc('week', i.inspection_date)::date
 ),
 

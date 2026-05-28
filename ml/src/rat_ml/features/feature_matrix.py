@@ -111,6 +111,14 @@ async def load_feature_matrix(db_url: str) -> pd.DataFrame:
     df["week_start"] = pd.to_datetime(df["week_start"])
     df["borough"] = df["nta_id"].str[:2]
 
+    # asyncpg returns NUMERIC columns as Decimal objects and all-NULL columns
+    # as object dtype; cast every non-string column to float so LightGBM /
+    # scikit-learn don't reject them.
+    _STRING_COLS = frozenset({"nta_id", "borough"})
+    for col in df.columns:
+        if df[col].dtype == object and col not in _STRING_COLS:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     # Cast boolean regime columns to int so tree models handle them correctly.
     bool_cols = [c for c in df.columns if c.startswith("regime_")]
     for col in bool_cols:

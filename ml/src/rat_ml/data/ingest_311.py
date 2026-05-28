@@ -90,33 +90,6 @@ async def _spatial_aggregate_and_upsert(
         for lon, lat, d in points
     )
 
-    upserted = await conn.fetchval(
-        f"""
-        WITH pts AS (
-            SELECT geom, created_date
-            FROM (VALUES {values_sql}) AS t(geom, created_date)
-        ),
-        joined AS (
-            SELECT
-                nb.nta_id,
-                date_trunc('week', pts.created_date)::date AS week_start
-            FROM pts
-            JOIN raw.nta_boundaries nb ON ST_Within(pts.geom, nb.geom)
-        ),
-        agg AS (
-            SELECT nta_id, week_start, COUNT(*)::integer AS cnt
-            FROM joined
-            GROUP BY nta_id, week_start
-        )
-        INSERT INTO raw.complaints_nta_week (nta_id, week_start, complaint_count)
-        SELECT nta_id, week_start, cnt FROM agg
-        ON CONFLICT (nta_id, week_start) DO UPDATE SET
-            complaint_count = raw.complaints_nta_week.complaint_count + EXCLUDED.complaint_count
-        RETURNING 1
-        """,
-    )
-    # fetchval returns the last RETURNING value; use a count approach instead.
-    # Re-run as execute to get row count.
     result = await conn.execute(
         f"""
         WITH pts AS (
@@ -150,8 +123,9 @@ async def _spatial_aggregate_and_upsert(
 
 async def run(db_url: str) -> None:
     conn = await asyncpg.connect(db_url)
+    await conn.execute("SET statement_timeout = 0")
     cursor = await _get_cursor(conn)
-    print(f"Fetching 311 rodent complaints updated after {cursor}")
+    print(f"Fetching 311 rodent complaints created after {cursor}")
 
     client = get_client()
     total_complaints = 0
@@ -163,18 +137,18 @@ async def run(db_url: str) -> None:
         DATASET_ID,
         where=(
             f"complaint_type='{COMPLAINT_TYPE}' "
-            f"AND updated_date > '{cursor}'"
+            f"AND created_date > '{cursor}'"
         ),
-        order="updated_date ASC",
-        select="unique_key,created_date,updated_date,latitude,longitude",
+        order="created_date ASC",
+        select="unique_key,created_date,latitude,longitude",
     ):
         n = await _spatial_aggregate_and_upsert(conn, batch)
         total_nta_weeks += n
         total_complaints += len(batch)
 
-        # Track the latest updated_date seen in this batch.
+        # Track the latest created_date seen in this batch.
         for row in batch:
-            ud = row.get("updated_date", "")
+            ud = row.get("created_date", "")
             if ud > latest_updated:
                 latest_updated = ud
 
@@ -190,9 +164,9 @@ async def run(db_url: str) -> None:
 
 
 async def main() -> None:
-    db_url = os.environ.get("DATABASE_URL")
+    db_url = os.environ.get("DIRECT_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if not db_url:
-        sys.exit("DATABASE_URL is not set.")
+        sys.exit("DIRECT_DATABASE_URL or DATABASE_URL is not set.")
     await run(db_url)
 
 
