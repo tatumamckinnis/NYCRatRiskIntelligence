@@ -27,6 +27,8 @@ dependencies = [
   # Observability — ingest spans appear alongside inference traces in Phoenix
   "opentelemetry-sdk>=1.26",
   "opentelemetry-exporter-otlp-proto-grpc>=1.26",
+  "lightgbm>=4.6.0",
+  "catboost>=1.2.10",
 ]
 
 [project.optional-dependencies]

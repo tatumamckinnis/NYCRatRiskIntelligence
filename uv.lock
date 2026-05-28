@@ -4288,10 +4288,12 @@ version = "0.1.0"
 source = { editable = "ml" }
 dependencies = [
     { name = "asyncpg" },
+    { name = "catboost" },
     { name = "census" },
     { name = "geopandas" },
     { name = "langchain-text-splitters" },
     { name = "libpysal" },
+    { name = "lightgbm" },
     { name = "meteostat" },
     { name = "numpy" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
@@ -4340,6 +4342,7 @@ vision = [
 [package.metadata]
 requires-dist = [
     { name = "asyncpg", specifier = ">=0.29" },
+    { name = "catboost", specifier = ">=1.2.10" },
     { name = "catboost", marker = "extra == 'ml'", specifier = ">=1.2" },
     { name = "census", specifier = ">=0.8" },
     { name = "darts", extras = ["torch"], marker = "extra == 'temporal'", specifier = ">=0.31" },
@@ -4347,6 +4350,7 @@ requires-dist = [
     { name = "jupyter", marker = "extra == 'notebooks'", specifier = ">=1.1" },
     { name = "langchain-text-splitters", specifier = ">=0.3" },
     { name = "libpysal", specifier = ">=4.10" },
+    { name = "lightgbm", specifier = ">=4.6.0" },
     { name = "lightgbm", marker = "extra == 'ml'", specifier = ">=4.5" },
     { name = "matplotlib", marker = "extra == 'notebooks'", specifier = ">=3.9" },
     { name = "meteostat", specifier = ">=1.6" },
