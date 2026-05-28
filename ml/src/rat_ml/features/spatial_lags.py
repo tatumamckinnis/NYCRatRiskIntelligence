@@ -117,6 +117,7 @@ async def run(db_url: str) -> int:
     """
     conn = await asyncpg.connect(db_url)
     try:
+        await conn.execute("SET statement_timeout = 0")
         gdf = await _fetch_boundaries(conn)
         adj = build_queen_adjacency(gdf)
 
