@@ -199,8 +199,10 @@ def _build_mosaic(
     scl = stack.sel(band="SCL").values  # (time, y, x)
     spectral = stack.sel(band=BANDS)    # (time, band, y, x)
 
-    # Build valid-pixel mask from SCL
-    valid_mask = sum(scl == v for v in VALID_SCL).astype(bool)  # (time, y, x)
+    # Build valid-pixel mask from SCL (avoid Python int + array with NumPy 2.0)
+    valid_mask = np.zeros(scl.shape, dtype=bool)
+    for v in VALID_SCL:
+        valid_mask |= (scl == v)
 
     # Apply mask: invalid pixels → NaN
     spectral_vals = spectral.values.copy()  # (time, band, y, x)
