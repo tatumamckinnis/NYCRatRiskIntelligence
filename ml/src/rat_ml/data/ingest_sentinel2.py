@@ -60,12 +60,17 @@ if _rio_spec and _rio_spec.submodule_search_locations:
         os.environ["PROJ_LIB"] = str(_proj_data)
         os.environ["PROJ_DATA"] = str(_proj_data)
 
-# NumPy 2.0 compat: stackstac calls np.can_cast(python_scalar, dtype) which
-# is no longer supported. Patch it at module level before stackstac is imported.
+# NumPy 2.0 compat: stackstac calls np.can_cast(type(fill_value), dtype) which
+# passes a Python *type* (e.g. float) rather than a scalar — not supported in
+# NumPy 2.0 (NEP 50).  Patch it at module level before stackstac is imported.
 import numpy as _np  # noqa: E402
 _orig_can_cast = _np.can_cast
 def _patched_can_cast(from_, to, casting="safe"):  # type: ignore[misc]
-    if isinstance(from_, (bool, int, float, complex)):
+    # Case 1: from_ is a Python built-in type (float, int, bool, complex)
+    if from_ in (bool, int, float, complex):
+        from_ = _np.dtype(from_)
+    # Case 2: from_ is a Python scalar instance
+    elif isinstance(from_, (bool, int, float, complex)):
         from_ = _np.array(from_).dtype
     return _orig_can_cast(from_, to, casting=casting)
 _np.can_cast = _patched_can_cast  # type: ignore[assignment]
