@@ -247,9 +247,9 @@ def train_fusion(
     else:
         raise ValueError(f"Unknown model_type: {model_type!r}")
 
-    # Fit base on full train set, then apply isotonic calibration
-    base.fit(X_train, y_train)
-    calibrated = CalibratedClassifierCV(base, method="isotonic", cv="prefit")
+    # Fit with 5-fold cross-validated isotonic calibration.
+    # (cv="prefit" was removed in sklearn>=1.3; cv=5 is the recommended replacement.)
+    calibrated = CalibratedClassifierCV(base, method="isotonic", cv=5)
     calibrated.fit(X_train, y_train)
 
     # Evaluate on test set

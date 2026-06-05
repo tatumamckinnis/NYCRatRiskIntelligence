@@ -18,10 +18,13 @@ Optional env vars:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import textwrap
 from pathlib import Path
+
+import pandas as pd
 
 try:
     from dotenv import load_dotenv
@@ -138,6 +141,14 @@ async def main() -> None:
         },
     )
     (path / "report.md").write_text(_report_md(cb_result))
+    # Save OOF predictions for fusion meta-learner (final model on full panel)
+    all_panel = pd.concat([train_df, test_df], ignore_index=True)
+    y_prob_all = cb_result.model.predict_proba(all_panel[feature_cols])[:, 1]
+    oof_dict = {
+        f"{row['nta_id']}|{str(row['week_start'])[:10]}": float(prob)
+        for (_, row), prob in zip(all_panel.iterrows(), y_prob_all)
+    }
+    (path / "oof_predictions.json").write_text(json.dumps(oof_dict))
     print(f"  Test PR-AUC: {cb_result.test_metrics['pr_auc']:.4f}  "
           f"Top-decile lift: {cb_result.test_metrics['top_decile_lift']:.2f}x  "
           f"→ {path}")

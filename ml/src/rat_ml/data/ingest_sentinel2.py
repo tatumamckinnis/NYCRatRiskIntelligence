@@ -48,6 +48,28 @@ try:
 except ImportError:
     pass
 
+# PROJ/GDAL env fix: the rasterio wheel bundles GDAL + PROJ but macOS may load
+# the Anaconda PROJ dylib first, whose proj.db version is too old (< 6).
+# Point PROJ_LIB / PROJ_DATA to the rasterio-bundled proj_data (version 6) so that
+# GDAL resolves EPSG codes correctly.  Must be set before any geo library is imported.
+import importlib.util as _ilu  # noqa: E402
+_rio_spec = _ilu.find_spec("rasterio")
+if _rio_spec and _rio_spec.submodule_search_locations:
+    _proj_data = Path(_rio_spec.submodule_search_locations[0]) / "proj_data"
+    if (_proj_data / "proj.db").exists():
+        os.environ["PROJ_LIB"] = str(_proj_data)
+        os.environ["PROJ_DATA"] = str(_proj_data)
+
+# NumPy 2.0 compat: stackstac calls np.can_cast(python_scalar, dtype) which
+# is no longer supported. Patch it at module level before stackstac is imported.
+import numpy as _np  # noqa: E402
+_orig_can_cast = _np.can_cast
+def _patched_can_cast(from_, to, casting="safe"):  # type: ignore[misc]
+    if isinstance(from_, (bool, int, float, complex)):
+        from_ = _np.array(from_).dtype
+    return _orig_can_cast(from_, to, casting=casting)
+_np.can_cast = _patched_can_cast  # type: ignore[assignment]
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -179,6 +201,7 @@ def _build_mosaic(
     Returns None if no valid pixels are found.
     """
     import numpy as np  # noqa: PLC0415
+    import rioxarray  # noqa: PLC0415  # registers .rio accessor on DataArray
     import stackstac  # noqa: PLC0415
     import xarray as xr  # noqa: PLC0415
 
@@ -191,8 +214,10 @@ def _build_mosaic(
         assets=BANDS + ["SCL"],
         resolution=TARGET_RESOLUTION,
         bounds_latlon=bbox,
+        epsg=32618,  # UTM Zone 18N — common CRS for all NYC Sentinel-2 tiles
         dtype="float32",
-        fill_value=float("nan"),
+        fill_value=np.float32("nan"),
+        rescale=False,
     )
 
     # Separate SCL from spectral bands
@@ -205,8 +230,13 @@ def _build_mosaic(
         valid_mask |= (scl == v)
 
     # Apply mask: invalid pixels → NaN
-    spectral_vals = spectral.values.copy()  # (time, band, y, x)
-    spectral_vals[:, :, ~valid_mask] = float("nan")
+    # valid_mask is (time, y, x); spectral_vals is (time, band, y, x).
+    # Expand the mask to (time, 1, y, x) so np.where broadcasts across bands.
+    spectral_vals = np.where(
+        valid_mask[:, np.newaxis, :, :],
+        spectral.values,
+        float("nan"),
+    )  # (time, band, y, x)
 
     # Median composite along time dimension (ignores NaN)
     with np.errstate(all="ignore"):

@@ -92,13 +92,13 @@ def main(argv: list[str] | None = None) -> int:
         log.error("No qualifying series — panel may be empty. Aborting.")
         return 1
 
-    train_dataset, val_dataset = split_tft_dataset(
+    train_dataset, _ = split_tft_dataset(
         full_dataset, holdout_weeks=args.holdout_weeks
     )
     log.info(
-        "Train series: %d  |  Val series: %d",
+        "Train series: %d  |  Val series (full): %d",
         len(train_dataset.bundles),
-        len(val_dataset.bundles),
+        len(full_dataset.bundles),
     )
 
     # ── Train ─────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
     result = train_tft(
         train_dataset,
-        val_dataset,
+        full_dataset,  # Darts needs full series for val context, not just holdout slice
         artifacts_dir=args.artifacts_dir,
         input_chunk_length=args.input_chunk,
         output_chunk_length=args.output_chunk,

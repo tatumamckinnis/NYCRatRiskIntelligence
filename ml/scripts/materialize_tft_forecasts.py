@@ -93,26 +93,19 @@ async def run(args: argparse.Namespace) -> int:
     from rat_ml.models.tft_trainer import forecast_nta, load_tft  # noqa: PLC0415
     from rat_ml.models.registry import ModelRegistry  # noqa: PLC0415
 
-    log.info("Loading TFT model from %s …", args.artifacts_dir)
+    log.info("Loading TFT model from checkpoint in %s …", args.artifacts_dir)
     model = load_tft(args.artifacts_dir)
 
     registry = ModelRegistry(args.artifacts_dir)
-    _m, meta = registry.load("tft")
     model_version = registry.list_models().get("tft", "unknown")
 
     # ── Load panel ────────────────────────────────────────────────────────
     from rat_ml.features.feature_matrix import load_feature_matrix  # noqa: PLC0415
-    from rat_ml.features.tft_dataset import (  # noqa: PLC0415
-        INPUT_CHUNK_LENGTH,
-        build_tft_dataset,
-    )
+    from rat_ml.features.tft_dataset import build_tft_dataset  # noqa: PLC0415
+    from rat_ml.models.tft_trainer import INPUT_CHUNK_LENGTH  # noqa: PLC0415
 
     log.info("Loading panel …")
-    df = await load_feature_matrix.__wrapped__(args.db_url)  # type: ignore[attr-defined]
-    # fallback if not wrapped
-    import asyncio as _asyncio  # noqa: PLC0415
-    if df is None:
-        df = await load_feature_matrix(args.db_url)
+    df = await load_feature_matrix(args.db_url)
 
     log.info("Panel: %d rows", len(df))
     dataset = build_tft_dataset(df)
@@ -121,16 +114,35 @@ async def run(args: argparse.Namespace) -> int:
     as_of_week = _current_week().date()
 
     # ── Generate forecasts ────────────────────────────────────────────────
+    from darts import TimeSeries as _TS  # noqa: PLC0415
+    HORIZON = 12  # forecast weeks
+
+    def _extend_future_cov(fc: "_TS", n: int) -> "_TS":
+        """Forward-fill the last row of future covariates by n weeks.
+
+        Regime indicators are policy-level variables that are known in advance;
+        we assume they remain at their last observed value for the forecast horizon.
+        """
+        df = fc.to_dataframe()
+        last_val = df.iloc[-1]
+        freq = df.index.freq or pd.tseries.frequencies.to_offset("7D")
+        new_idx = pd.date_range(df.index[-1] + freq, periods=n, freq=freq)
+        new_rows = pd.DataFrame(
+            [last_val.values] * n, index=new_idx, columns=df.columns
+        )
+        return _TS.from_dataframe(pd.concat([df, new_rows]))
+
     all_rows: list[dict] = []
     failed = 0
 
     for bundle in dataset.bundles:
         try:
+            future_cov_ext = _extend_future_cov(bundle.future_covariates, HORIZON)
             forecast_df = forecast_nta(
                 model,
                 bundle.target,
                 bundle.past_covariates,
-                bundle.future_covariates,
+                future_cov_ext,
                 num_samples=args.num_samples,
             )
             for _, frow in forecast_df.iterrows():

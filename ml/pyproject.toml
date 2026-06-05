@@ -44,6 +44,7 @@ temporal = [
   "darts[torch]>=0.31",
   "pytorch-lightning>=2.4",
   "transformers>=4.44",
+  "chronos-forecasting>=1.3",
 ]
 # Phase 3 — satellite vision track (heavy: rasterio, stackstac)
 vision = [
@@ -51,7 +52,7 @@ vision = [
   "rioxarray>=0.17",
   "pystac-client>=0.8",
   "planetary-computer>=1.0",
-  "stackstac>=0.5",
+  "stackstac>=0.5.1",
 ]
 # Notebooks
 notebooks = [

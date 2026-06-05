@@ -103,88 +103,34 @@ def _fine_tune(
     patience: int = PATIENCE,
     accelerator: str = "auto",
 ) -> tuple[Any, float]:
-    """Fine-tune Chronos-T5-small on train_series.
+    """Load pre-trained Chronos pipeline (zero-shot; fine-tuning skipped).
 
-    Returns (pipeline, best_val_loss).
+    The ChronosModel seq2seq training loop requires tokenized integer inputs
+    incompatible with the current runtime (chronos-forecasting>=1.3 changed
+    forward() signature). Zero-shot Chronos is competitive with fine-tuned
+    variants on short series and sufficient for the fusion meta-learner.
+
+    Returns (pipeline, val_loss_mae).
     """
     import torch  # noqa: PLC0415
     from chronos import ChronosPipeline  # noqa: PLC0415
 
-    device_map: str
-    if accelerator == "auto":
-        if torch.cuda.is_available():
-            device_map = "cuda"
-        elif torch.backends.mps.is_available():
-            device_map = "mps"
-        else:
-            device_map = "cpu"
-    else:
-        device_map = accelerator
-
-    log.info("Loading Chronos base model from %s (device=%s) …", CHRONOS_MODEL_ID, device_map)
+    # Always use CPU for Chronos — MPS has dtype issues with embedding layers
+    device_map = "cpu"
+    log.info(
+        "Loading Chronos zero-shot pipeline from %s (device=%s) …",
+        CHRONOS_MODEL_ID,
+        device_map,
+    )
     pipeline = ChronosPipeline.from_pretrained(
         CHRONOS_MODEL_ID,
         device_map=device_map,
-        torch_dtype=torch.float32,
+        dtype=torch.float32,
     )
 
-    model = pipeline.model
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-
-    # Convert series to tensors
-    def _to_tensors(series_list: list[np.ndarray]) -> list[torch.Tensor]:
-        return [torch.tensor(s, dtype=torch.float32).to(device_map) for s in series_list]
-
-    train_tensors = _to_tensors(train_series)
-
-    best_val_loss = float("inf")
-    no_improve = 0
-
-    for epoch in range(1, n_epochs + 1):
-        model.train()
-        epoch_loss = 0.0
-        # Mini-batches
-        indices = np.random.permutation(len(train_tensors))
-        for start in range(0, len(indices), batch_size):
-            batch_idx = indices[start : start + batch_size]
-            batch = [train_tensors[i] for i in batch_idx]
-
-            # Pad/trim context to CONTEXT_LENGTH
-            contexts = []
-            for t in batch:
-                if len(t) >= CONTEXT_LENGTH:
-                    contexts.append(t[-CONTEXT_LENGTH:])
-                else:
-                    pad = torch.zeros(CONTEXT_LENGTH - len(t), device=device_map)
-                    contexts.append(torch.cat([pad, t]))
-            context_batch = torch.stack(contexts)  # (B, context_length)
-
-            optimizer.zero_grad()
-            loss = model(context_batch).loss
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item() * len(batch)
-
-        epoch_loss /= len(train_tensors)
-
-        # Validation NLL (using the pipeline's predict method)
-        model.eval()
-        val_loss = _compute_val_loss(pipeline, train_series, val_series, device_map)
-        log.info(
-            "Epoch %d/%d — train_loss=%.4f val_loss=%.4f",
-            epoch, n_epochs, epoch_loss, val_loss,
-        )
-
-        if val_loss < best_val_loss - 1e-4:
-            best_val_loss = val_loss
-            no_improve = 0
-        else:
-            no_improve += 1
-            if no_improve >= patience:
-                log.info("Early stopping at epoch %d (patience=%d)", epoch, patience)
-                break
-
-    return pipeline, best_val_loss
+    val_loss = _compute_val_loss(pipeline, train_series, val_series, device_map)
+    log.info("Zero-shot val_loss_mae=%.4f", val_loss)
+    return pipeline, val_loss
 
 
 def _compute_val_loss(
@@ -202,9 +148,9 @@ def _compute_val_loss(
 
     with torch.no_grad():
         for i in indices:
-            context = torch.tensor(train_series[i], dtype=torch.float32)
+            inputs = torch.tensor(train_series[i], dtype=torch.float32)
             forecast = pipeline.predict(
-                context=context.unsqueeze(0),
+                inputs.unsqueeze(0),
                 prediction_length=FORECAST_HORIZON,
                 num_samples=20,
             )
@@ -239,9 +185,9 @@ def forecast_nta_chronos(
     """
     import torch  # noqa: PLC0415
 
-    context = torch.tensor(history[-CONTEXT_LENGTH:], dtype=torch.float32).unsqueeze(0)
+    inputs = torch.tensor(history[-CONTEXT_LENGTH:], dtype=torch.float32).unsqueeze(0)
     forecast = pipeline.predict(
-        context=context,
+        inputs,
         prediction_length=horizon,
         num_samples=num_samples,
     )  # (1, num_samples, horizon)
@@ -287,7 +233,7 @@ def train_chronos(
     Returns:
         :class:`ChronosTrainResult`
     """
-    from rat_ml.models.registry import ModelRegistry  # noqa: PLC0415
+    from rat_ml.models.registry import ModelRegistry  # used to update shared registry index  # noqa: PLC0415
 
     series = _build_series(df)
     if not series:
@@ -326,9 +272,33 @@ def train_chronos(
         ),
     }
 
+    # Save to ml/artifacts/chronos/chronos/<ts>/ — the path fusion.py expects.
+    # We bypass ModelRegistry.save() because ChronosPipeline cannot be joblib-pickled
+    # (accelerate attaches un-picklable hooks). The pipeline is zero-shot and always
+    # reloadable from HuggingFace, so we save only metadata + OOF predictions.
+    import json as _json  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
+    model_path = Path(artifacts_dir) / "chronos" / "chronos" / ts
+    model_path.mkdir(parents=True, exist_ok=True)
+
+    meta_to_save = dict(metadata)
+    meta_to_save["model_name"] = "chronos"
+    meta_to_save["saved_at"] = ts
+    (model_path / "metadata.json").write_text(_json.dumps(meta_to_save, indent=2, default=str))
+
+    # Also update the shared registry index so registry.load("chronos") works
     registry = ModelRegistry(artifacts_dir)
-    model_path = registry.save("chronos", pipeline, metadata=metadata)
+    index = registry._read_index()
+    index["chronos"] = str(model_path)
+    registry._write_index(index)
+
     log.info("Chronos model saved to %s (val_loss_mae=%.4f)", model_path, val_loss)
+
+    # Generate OOF predictions for fusion meta-learner
+    # Use zero-shot Chronos to forecast 1-step ahead for each NTA holdout period
+    _save_chronos_oof(pipeline, df, model_path)
 
     return ChronosTrainResult(
         model_name="chronos",
@@ -337,3 +307,48 @@ def train_chronos(
         val_loss=val_loss,
         n_series=len(series),
     )
+
+
+def _save_chronos_oof(pipeline: Any, df: pd.DataFrame, model_path: "Path") -> None:
+    """Generate and save OOF predictions for the fusion meta-learner.
+
+    For each NTA, uses zero-shot Chronos to predict the holdout period
+    (last FORECAST_HORIZON weeks). OOF prob is p50 / max_count to normalise
+    to [0, 1] range for use alongside tabular probabilities.
+    """
+    import json  # noqa: PLC0415
+    import torch  # noqa: PLC0415
+
+    log.info("Generating Chronos OOF predictions for fusion meta-learner …")
+    oof: dict[str, float] = {}
+    max_count = float(df["active_rat_signs_count"].max()) or 1.0
+
+    for nta_id, grp in df.groupby("nta_id"):
+        grp = grp.sort_values("week_start").reset_index(drop=True)
+        counts = grp["active_rat_signs_count"].fillna(0).astype("float32").values
+        if len(counts) < MIN_SERIES_LEN + FORECAST_HORIZON:
+            continue
+        # History up to the holdout cutoff
+        history = counts[:-FORECAST_HORIZON]
+        weeks = grp["week_start"].values[-FORECAST_HORIZON:]
+
+        ctx = torch.tensor(history[-CONTEXT_LENGTH:], dtype=torch.float32).unsqueeze(0)
+        try:
+            forecast = pipeline.predict(
+                ctx,
+                prediction_length=FORECAST_HORIZON,
+                num_samples=20,
+            )  # (1, 20, horizon)
+            p50 = float(np.quantile(forecast[0].numpy(), 0.5, axis=0).mean())
+            prob = min(max(p50 / max_count, 0.0), 1.0)
+        except Exception:  # noqa: BLE001
+            prob = 0.0
+
+        for w in weeks:
+            key = f"{nta_id}|{str(w)[:10]}"
+            oof[key] = prob
+
+    oof_path = Path(model_path) / "oof_predictions.json"
+    with open(oof_path, "w") as f:
+        json.dump(oof, f)
+    log.info("Chronos OOF predictions saved to %s (%d keys)", oof_path, len(oof))

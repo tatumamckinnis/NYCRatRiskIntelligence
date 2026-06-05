@@ -109,6 +109,8 @@ def train_tft(
         mode="min",
     )
 
+    from darts.utils.likelihood_models import QuantileRegression  # noqa: PLC0415
+
     model = TFTModel(
         input_chunk_length=input_chunk_length,
         output_chunk_length=output_chunk_length,
@@ -118,8 +120,7 @@ def train_tft(
         dropout=dropout,
         batch_size=batch_size,
         n_epochs=n_epochs,
-        likelihood=None,  # quantile regression via loss_fn below
-        quantiles=quantiles,
+        likelihood=QuantileRegression(quantiles),
         optimizer_kwargs={"lr": learning_rate},
         pl_trainer_kwargs={
             "accelerator": accelerator,
@@ -186,16 +187,23 @@ def train_tft(
 
 
 def load_tft(artifacts_dir: str = "ml/artifacts") -> Any:
-    """Load the latest TFT model from the registry.
+    """Load the latest TFT model from its Darts checkpoint.
+
+    Uses ``TFTModel.load_from_checkpoint`` (native Darts serialisation) rather
+    than joblib, because PyTorch-Lightning internals are not joblib-serialisable.
 
     Returns:
-        ``darts.models.TFTModel`` instance (loaded from checkpoint).
+        ``darts.models.TFTModel`` instance (loaded from best checkpoint).
     """
-    from rat_ml.models.registry import ModelRegistry  # noqa: PLC0415
+    from darts.models import TFTModel  # noqa: PLC0415
 
-    registry = ModelRegistry(artifacts_dir)
-    model, _meta = registry.load("tft")
-    return model
+    checkpoint_work_dir = str(Path(artifacts_dir) / "tft_checkpoints")
+    log.info("Loading TFT from checkpoint: %s / tft_rat_risk", checkpoint_work_dir)
+    return TFTModel.load_from_checkpoint(
+        model_name="tft_rat_risk",
+        work_dir=checkpoint_work_dir,
+        best=True,
+    )
 
 
 def forecast_nta(
@@ -229,10 +237,11 @@ def forecast_nta(
     )
 
     # Extract quantiles from probabilistic forecast
+    # Darts >= 0.44 renamed quantile_timeseries() → quantile()
     weeks = pred.time_index
-    p10 = pred.quantile_timeseries(0.10).values().flatten()
-    p50 = pred.quantile_timeseries(0.50).values().flatten()
-    p90 = pred.quantile_timeseries(0.90).values().flatten()
+    p10 = pred.quantile(0.10).values().flatten()
+    p50 = pred.quantile(0.50).values().flatten()
+    p90 = pred.quantile(0.90).values().flatten()
 
     # Clip to [0, 1] — these are probability estimates
     p10 = np.clip(p10, 0.0, 1.0)
