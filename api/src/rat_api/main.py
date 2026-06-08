@@ -14,7 +14,8 @@ from rat_api.config import get_settings
 from rat_api.ml.loader import load_models
 from rat_api.ml.features import get_all_nta_features_for_week, current_iso_week
 from rat_api.ml.predict import predict_risk
-from rat_api.routes import health, inspections, narrative, risk
+from rat_api.obs.tracing import setup_tracing
+from rat_api.routes import chat, health, inspections, narrative, risk
 
 
 def _compute_decile_thresholds(scores: list[float]) -> list[float]:
@@ -29,6 +30,13 @@ def _compute_decile_thresholds(scores: list[float]) -> list[float]:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Load models and pre-compute decile thresholds at startup."""
     settings = get_settings()
+
+    # OpenInference tracing
+    setup_tracing(
+        "rat-api",
+        otel_endpoint=settings.otel_endpoint or settings.phoenix_otlp_endpoint,
+        jsonl_path=settings.obs_jsonl_path,
+    )
 
     # Sentry (no-op if DSN is empty)
     if settings.sentry_dsn:
@@ -73,6 +81,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:  # noqa: BLE001
         app.state.decile_thresholds = [i / 10 for i in range(1, 11)]
 
+    # Load BGE Reranker (lazy — skip if sentence-transformers not installed)
+    try:
+        from rat_api.rag.reranker import load_reranker  # noqa: PLC0415
+        load_reranker()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("BGE Reranker not loaded (will skip reranking): %s", exc)
+
     yield  # app is running
 
 
@@ -94,6 +109,7 @@ def create_app() -> FastAPI:
     app.include_router(risk.router)
     app.include_router(inspections.router)
     app.include_router(narrative.router)
+    app.include_router(chat.router)
 
     return app
 

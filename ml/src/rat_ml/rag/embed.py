@@ -79,3 +79,65 @@ def embed_query(
     client = voyageai.Client(api_key=api_key)
     result = client.embed([query], model=model, input_type="query")
     return result.embeddings[0]
+
+
+# ---------------------------------------------------------------------------
+# BGE-M3 ablation embedder (T-38)
+# ---------------------------------------------------------------------------
+
+BGE_M3_MODEL = "BAAI/bge-m3"
+BGE_BATCH_SIZE = 128
+
+
+class BgeMThreeEmbedder:
+    """Self-hosted BGE-M3 embedder for the ablation column (``embedding_bge``).
+
+    Loads the model once at initialisation.  Uses ``sentence-transformers``
+    ``encode()`` which handles batching and normalisation internally.
+
+    Args:
+        model_name: HuggingFace model ID (default: ``BAAI/bge-m3``).
+        device:     ``"cpu"``, ``"cuda"``, or ``"mps"``; ``None`` = auto.
+    """
+
+    def __init__(self, model_name: str = BGE_M3_MODEL, device: str | None = None) -> None:
+        from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+        log.info("Loading BGE-M3 model %s …", model_name)
+        self._model = SentenceTransformer(model_name, device=device)
+        log.info("BGE-M3 loaded.")
+
+    def encode(self, texts: list[str], *, batch_size: int = BGE_BATCH_SIZE) -> list[list[float]]:
+        """Return one 1024-dim float vector per text."""
+        vecs = self._model.encode(
+            texts,
+            batch_size=batch_size,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
+        return [v.tolist() for v in vecs]
+
+
+def embed_chunks_bge(
+    chunks: "list[CorpusChunk]",
+    *,
+    embedder: "BgeMThreeEmbedder | None" = None,
+    device: str | None = None,
+    batch_size: int = BGE_BATCH_SIZE,
+) -> list[list[float]]:
+    """Embed *chunks* with BGE-M3 and return 1024-dim float vectors.
+
+    Args:
+        chunks:    Corpus chunks; uses ``content_with_prefix`` as the text.
+        embedder:  Pre-constructed :class:`BgeMThreeEmbedder`; created if None.
+        device:    Torch device override.
+        batch_size: Sentences per forward pass.
+
+    Returns:
+        List of 1024-dim float vectors, one per chunk.
+    """
+    if embedder is None:
+        embedder = BgeMThreeEmbedder(device=device)
+    texts = [c.content_with_prefix for c in chunks]
+    vecs = embedder.encode(texts, batch_size=batch_size)
+    log.info("BGE-M3 embedded %d chunks", len(chunks))
+    return vecs

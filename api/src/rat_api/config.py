@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     # --- Observability ---
     phoenix_otlp_endpoint: str = "http://localhost:4317"
     otlp_json_sink: str = "logs/otlp_traces.jsonl"
+    # OTEL_EXPORTER_OTLP_ENDPOINT — if set, sends spans to this collector (e.g. Phoenix).
+    # Defaults to phoenix_otlp_endpoint when non-empty.
+    otel_endpoint: str = ""
+    # OBS_JSONL_PATH — flat JSONL span sink read by the eval runner.
+    obs_jsonl_path: str = "obs/traces.jsonl"
     sentry_dsn: str = ""
 
     # --- Model artifacts ---

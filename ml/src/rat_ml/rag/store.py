@@ -32,31 +32,40 @@ _UPSERT_SQL = """
         effective_date       = EXCLUDED.effective_date
 """
 
+_UPDATE_BGE_SQL = """
+    UPDATE app.health_code_chunks
+    SET embedding_bge = $2::vector
+    WHERE chunk_id = $1
+"""
+
 
 async def upsert_chunks(
     chunks: "list[CorpusChunk]",
     embeddings: list[list[float]],
     *,
     db_url: str,
+    bge_embeddings: list[list[float]] | None = None,
 ) -> int:
     """Upsert *chunks* with their *embeddings* into ``app.health_code_chunks``.
 
     Args:
-        chunks:     Corpus chunks (from :func:`~rat_ml.rag.corpus.build_corpus`).
-        embeddings: Parallel list of 1024-dim float vectors.
-        db_url:     asyncpg-compatible connection string.
+        chunks:         Corpus chunks (from :func:`~rat_ml.rag.corpus.build_corpus`).
+        embeddings:     Parallel list of 1024-dim Voyage float vectors.
+        db_url:         asyncpg-compatible connection string.
+        bge_embeddings: Optional BGE-M3 vectors for ``embedding_bge`` column.
 
     Returns:
         Number of rows upserted.
     """
     assert len(chunks) == len(embeddings), "chunks and embeddings must be same length"
+    if bge_embeddings is not None:
+        assert len(chunks) == len(bge_embeddings), "bge_embeddings length mismatch"
 
     conn = await asyncpg.connect(db_url)
     try:
         async with conn.transaction():
             count = 0
-            for chunk, vec in zip(chunks, embeddings, strict=True):
-                # pgvector expects a string like '[0.1, 0.2, ...]' for the ::vector cast
+            for i, (chunk, vec) in enumerate(zip(chunks, embeddings, strict=True)):
                 vec_str = "[" + ",".join(f"{v:.8f}" for v in vec) + "]"
                 await conn.execute(
                     _UPSERT_SQL,
@@ -72,6 +81,9 @@ async def upsert_chunks(
                     vec_str,
                     chunk.effective_date,
                 )
+                if bge_embeddings is not None:
+                    bge_str = "[" + ",".join(f"{v:.8f}" for v in bge_embeddings[i]) + "]"
+                    await conn.execute(_UPDATE_BGE_SQL, chunk.chunk_id, bge_str)
                 count += 1
     finally:
         await conn.close()

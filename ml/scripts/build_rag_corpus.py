@@ -31,6 +31,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Voyage AI embedding model (default: voyage-3)",
     )
     p.add_argument(
+        "--bge-m3",
+        action="store_true",
+        help="Also embed with BGE-M3 and populate embedding_bge column (T-38)",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Print chunks without embedding or writing to DB",
@@ -54,7 +59,7 @@ async def main_async(args: argparse.Namespace) -> int:
             print(f"  {c.content[:120]}…\n")
         return 0
 
-    # ── Embed ─────────────────────────────────────────────────────────────
+    # ── Voyage embeddings ─────────────────────────────────────────────────
     log.info("Embedding %d chunks with %s …", len(chunks), args.voyage_model)
     embeddings = embed_chunks(
         chunks,
@@ -62,15 +67,23 @@ async def main_async(args: argparse.Namespace) -> int:
         model=args.voyage_model,
     )
 
+    # ── BGE-M3 ablation embeddings (optional) ─────────────────────────────
+    bge_embeddings = None
+    if args.bge_m3:
+        from rat_ml.rag.embed import embed_chunks_bge  # noqa: PLC0415
+        log.info("Embedding %d chunks with BGE-M3 …", len(chunks))
+        bge_embeddings = embed_chunks_bge(chunks)
+
     # ── Upsert ────────────────────────────────────────────────────────────
     log.info("Upserting into app.health_code_chunks …")
-    n = await upsert_chunks(chunks, embeddings, db_url=args.db_url)
+    n = await upsert_chunks(chunks, embeddings, db_url=args.db_url, bge_embeddings=bge_embeddings)
 
     print(
         f"\nRAG corpus build summary\n"
         f"  chunks built   : {len(chunks)}\n"
         f"  rows upserted  : {n}\n"
-        f"  embedding model: {args.voyage_model}\n"
+        f"  voyage model   : {args.voyage_model}\n"
+        f"  bge-m3 ablation: {'yes' if bge_embeddings else 'no'}\n"
     )
     return 0
 
