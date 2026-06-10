@@ -2,7 +2,7 @@
 """Ingest 24 RCNY §81.23 (IPM for Food Service Establishments) into the RAG corpus.
 
 Source: NYC DOHMH / NYC Rules
-  Primary URL : https://rules.cityofnewyork.us/rule/chapter-23-of-title-24-of-the-rcny/
+  Primary URL : https://www.nyc.gov/assets/doh/downloads/pdf/about/healthcode/health-code-article81.pdf
   Fallback    : data/pdfs/rcny_81_23.pdf
 
 Authority : DOHMH
@@ -25,7 +25,7 @@ from _ingest_common import run_ingest  # noqa: E402
 
 if __name__ == "__main__":
     sys.exit(run_ingest(
-        pdf_url="https://rules.cityofnewyork.us/wp-content/uploads/2019/08/Chapter-81-Food-Service-Establishments.pdf",
+        pdf_url="https://www.nyc.gov/assets/doh/downloads/pdf/about/healthcode/health-code-article81.pdf",
         pdf_fallback=REPO_ROOT / "data" / "pdfs" / "rcny_81_23.pdf",
         authority="DOHMH",
         document="24 RCNY §81.23",

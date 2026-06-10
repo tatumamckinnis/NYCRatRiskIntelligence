@@ -2,7 +2,7 @@
 """Ingest NYC Housing Maintenance Code §§27-2017 – 27-2018.1 into the RAG corpus.
 
 Source: NYC HPD / NYC Admin Code
-  Primary URL : https://www.nyc.gov/assets/hpd/downloads/pdfs/services/housing-maintenance-code.pdf
+  Primary URL : https://www.nyc.gov/assets/buildings/pdf/HousingMaintenanceCode.pdf
   Fallback    : data/pdfs/hmc_27_2017.pdf
 
 Authority : HPD
@@ -25,7 +25,7 @@ from _ingest_common import run_ingest  # noqa: E402
 
 if __name__ == "__main__":
     sys.exit(run_ingest(
-        pdf_url="https://www.nyc.gov/assets/hpd/downloads/pdfs/services/housing-maintenance-code.pdf",
+        pdf_url="https://www.nyc.gov/assets/buildings/pdf/HousingMaintenanceCode.pdf",
         pdf_fallback=REPO_ROOT / "data" / "pdfs" / "hmc_27_2017.pdf",
         authority="HPD",
         document="Housing Maintenance Code",

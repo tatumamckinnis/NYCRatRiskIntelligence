@@ -2,7 +2,7 @@
 """Ingest ECB/OATH Rodent-Related Penalty Schedule into the RAG corpus.
 
 Source: NYC OATH
-  Primary URL : https://www.nyc.gov/assets/oath/downloads/pdf/ecb/civil-penalty-schedules/dohmh-ecb-penalty-schedule.pdf
+  Primary URL : https://www.nyc.gov/html/ecb/downloads/pdf/HealthCodeandMiscellaneousFoodVendorViolationsPenaltySchedule.pdf
   Fallback    : data/pdfs/ecb_penalties.pdf
 
 Authority : ECB
@@ -25,7 +25,7 @@ from _ingest_common import run_ingest  # noqa: E402
 
 if __name__ == "__main__":
     sys.exit(run_ingest(
-        pdf_url="https://www.nyc.gov/assets/oath/downloads/pdf/ecb/civil-penalty-schedules/dohmh-ecb-penalty-schedule.pdf",
+        pdf_url="https://www.nyc.gov/html/ecb/downloads/pdf/HealthCodeandMiscellaneousFoodVendorViolationsPenaltySchedule.pdf",
         pdf_fallback=REPO_ROOT / "data" / "pdfs" / "ecb_penalties.pdf",
         authority="ECB",
         document="ECB Penalty Schedule",
