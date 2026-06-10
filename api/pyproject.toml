@@ -27,6 +27,7 @@ dependencies = [
   "voyageai>=0.3",
   "cohere>=5.5",
   "litellm>=1.40",
+  "sentence-transformers>=3.0",
   # Observability — LLM tracing (OpenInference spec)
   "opentelemetry-sdk>=1.26",
   "opentelemetry-exporter-otlp-proto-grpc>=1.26",

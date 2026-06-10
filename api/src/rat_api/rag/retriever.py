@@ -19,15 +19,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 import asyncpg
 
 from rat_api.config import get_settings
 from rat_api.obs.tracing import retriever_span, reranker_span
-
-if TYPE_CHECKING:
-    pass
+from rat_api.rag.reranker import get_reranker  # noqa: F401 — module-level so tests can patch it
+from rat_ml.rag.embed import embed_query  # noqa: F401 — module-level so tests can patch it
 
 log = logging.getLogger(__name__)
 
@@ -277,7 +275,6 @@ async def retrieve(
         span.set_attribute("retrieval.rewritten_query", rewritten)
 
         # Step 2 — dense retrieval
-        from rat_ml.rag.embed import embed_query  # noqa: PLC0415
         query_vec = embed_query(rewritten, api_key=settings.voyageai_api_key)
         dense_chunks = await _dense_retrieve(query_vec, conn, top_k=top_k_dense)
 
@@ -289,7 +286,6 @@ async def retrieve(
 
         # Step 5 — rerank
         with reranker_span("bge_rerank") as rspan:
-            from rat_api.rag.reranker import get_reranker  # noqa: PLC0415
             reranker = get_reranker()
             if reranker is not None:
                 final = reranker.rerank(rewritten, fused, top_k=top_k_final)
