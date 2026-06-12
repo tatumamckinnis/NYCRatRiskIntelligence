@@ -1,9 +1,9 @@
-"""Hybrid retrieval pipeline: BM25 + dense (Voyage) + RRF + BGE Reranker (T-39).
+"""Hybrid retrieval pipeline: BM25 + dense (BGE-M3) + RRF + BGE Reranker (T-39).
 
 Steps
 -----
-1. **Query rewriting** — Claude Haiku expands statutory vocabulary (≤ 200 tokens).
-2. **Dense retrieval** — Voyage AI query embedding → pgvector HNSW cosine top-K.
+1. **Query rewriting** — Groq llama-3.1-8b-instant expands statutory vocabulary (≤ 200 tokens).
+2. **Dense retrieval** — BGE-M3 local query embedding → pgvector HNSW cosine top-K.
 3. **BM25 retrieval** — ``plainto_tsquery`` + ``ts_rank_cd`` on the ``content_tsv`` index.
 4. **RRF fusion** — Reciprocal Rank Fusion (k=60) over dense + BM25 result lists.
 5. **Rerank** — BGE Reranker v2-M3 (or Cohere ablation) → top-6.
@@ -25,7 +25,7 @@ import asyncpg
 from rat_api.config import get_settings
 from rat_api.obs.tracing import retriever_span, reranker_span
 from rat_api.rag.reranker import get_reranker  # noqa: F401 — module-level so tests can patch it
-from rat_ml.rag.embed import embed_query  # noqa: F401 — module-level so tests can patch it
+from rat_ml.rag.embed import embed_query_bge as embed_query  # noqa: F401 — module-level so tests can patch it
 
 log = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class RetrievedChunk:
 # ---------------------------------------------------------------------------
 
 def _rewrite_query(query: str, *, api_key: str) -> str:
-    """Expand *query* with statutory vocabulary via Claude Haiku (≤ 200 tokens).
+    """Expand *query* with statutory vocabulary via Groq llama-3.1-8b-instant (free).
 
     Returns the original query on any failure so retrieval is never blocked.
     """
@@ -60,20 +60,25 @@ def _rewrite_query(query: str, *, api_key: str) -> str:
         return query
 
     try:
-        import anthropic  # noqa: PLC0415
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model="claude-haiku-4-5",
+        import litellm  # noqa: PLC0415
+        resp = litellm.completion(
+            model="groq/llama-3.1-8b-instant",
             max_tokens=200,
-            system=(
-                "You are a legal search assistant. Expand the user's query with "
-                "relevant statutory terms, synonyms, and cross-references found in "
-                "NYC rodent-control law (Health Code §151, HMC §27-2017, 24 RCNY §81.23). "
-                "Return only the expanded query text — no explanation, no preamble."
-            ),
-            messages=[{"role": "user", "content": query}],
+            api_key=api_key,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a legal search assistant. Expand the user's query with "
+                        "relevant statutory terms, synonyms, and cross-references found in "
+                        "NYC rodent-control law (Health Code §151, HMC §27-2017, 24 RCNY §81.23). "
+                        "Return only the expanded query text — no explanation, no preamble."
+                    ),
+                },
+                {"role": "user", "content": query},
+            ],
         )
-        rewritten = msg.content[0].text.strip()
+        rewritten = resp.choices[0].message.content.strip()
         log.debug("Query rewrite: %r → %r", query, rewritten)
         return rewritten
     except Exception as exc:  # noqa: BLE001
@@ -271,11 +276,11 @@ async def retrieve(
         span.set_attribute("retrieval.method", "hybrid_rrf_bge")
 
         # Step 1 — query rewriting
-        rewritten = _rewrite_query(query, api_key=settings.anthropic_api_key)
+        rewritten = _rewrite_query(query, api_key=settings.groq_api_key)
         span.set_attribute("retrieval.rewritten_query", rewritten)
 
-        # Step 2 — dense retrieval
-        query_vec = embed_query(rewritten, api_key=settings.voyageai_api_key)
+        # Step 2 — dense retrieval (BGE-M3 local, no API key needed)
+        query_vec = embed_query(rewritten)
         dense_chunks = await _dense_retrieve(query_vec, conn, top_k=top_k_dense)
 
         # Step 3 — BM25 retrieval

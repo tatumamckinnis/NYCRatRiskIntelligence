@@ -88,7 +88,6 @@ def _fetch_pages(pdf_url: str, pdf_fallback: Path) -> list[str]:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--db-url", default="")
-    p.add_argument("--voyage-api-key", default="")
     p.add_argument("--dry-run", action="store_true")
     return p.parse_args(argv)
 
@@ -100,7 +99,6 @@ async def _run(
     authority: str,
     document: str,
     db_url: str,
-    voyage_key: str,
     dry_run: bool,
 ) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -119,11 +117,11 @@ async def _run(
         print(f"  … ({len(chunks)} total)")
         return 0
 
-    from rat_ml.rag.embed import embed_chunks  # noqa: PLC0415
+    from rat_ml.rag.embed import embed_chunks_bge  # noqa: PLC0415
     from rat_ml.rag.store import upsert_chunks  # noqa: PLC0415
 
-    log.info("Embedding %d chunks …", len(chunks))
-    embeddings = embed_chunks(chunks, api_key=voyage_key)
+    log.info("Embedding %d chunks with BGE-M3 (local, free) …", len(chunks))
+    embeddings = embed_chunks_bge(chunks)
 
     n = await upsert_chunks(chunks, embeddings, db_url=db_url)
     log.info("Upserted %d rows into app.health_code_chunks", n)
@@ -140,12 +138,9 @@ def run_ingest(
 ) -> int:
     args = _parse_args(argv)
     db_url = args.db_url or os.environ.get("DIRECT_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
-    voyage_key = args.voyage_api_key or os.environ.get("VOYAGEAI_API_KEY", "")
 
     if not db_url and not args.dry_run:
         sys.exit("DIRECT_DATABASE_URL is not set.")
-    if not voyage_key and not args.dry_run:
-        sys.exit("VOYAGEAI_API_KEY is not set.")
 
     return asyncio.run(
         _run(
@@ -154,7 +149,6 @@ def run_ingest(
             authority=authority,
             document=document,
             db_url=db_url,
-            voyage_key=voyage_key,
             dry_run=args.dry_run,
         )
     )

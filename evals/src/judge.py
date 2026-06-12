@@ -1,4 +1,4 @@
-"""Faithfulness judge using Claude Sonnet 4.5 (T-42).
+"""Faithfulness judge using Groq llama-3.3-70b (free) via the OpenAI-compatible API (T-42).
 
 ``judge_faithfulness(question, answer, chunks)`` returns 1 if the answer is
 supported by the retrieved chunks, 0 otherwise.
@@ -11,7 +11,8 @@ import os
 
 log = logging.getLogger(__name__)
 
-_JUDGE_MODEL = "claude-sonnet-4-5"
+_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_JUDGE_MODEL = "llama-3.3-70b-versatile"
 
 _JUDGE_SYSTEM = (
     "You are a faithful-answer evaluator. You will be given a question, "
@@ -34,19 +35,20 @@ async def judge_faithfulness(
         question: The original user question.
         answer:   The generated assistant answer.
         chunks:   List of dicts with at least a ``"content"`` key.
-        api_key:  Anthropic API key (falls back to ``ANTHROPIC_API_KEY`` env var).
+        api_key:  Groq API key (falls back to ``GROQ_API_KEY`` env var).
 
     Returns:
-        1 (faithful) or 0 (not faithful / error).
+        1 (faithful) or 0 (not faithful / error) or -1 (skipped).
     """
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    key = api_key or os.environ.get("GROQ_API_KEY", "")
     if not key:
-        log.warning("ANTHROPIC_API_KEY not set; skipping faithfulness judge.")
+        log.warning("GROQ_API_KEY not set; skipping faithfulness judge.")
         return -1  # sentinel: skipped
 
     try:
-        import anthropic  # noqa: PLC0415
-        client = anthropic.AsyncAnthropic(api_key=key)
+        from openai import OpenAI  # noqa: PLC0415
+
+        client = OpenAI(api_key=key, base_url=_GROQ_BASE_URL)
 
         context = "\n\n".join(
             f"[{i + 1}] {c.get('citation', '')}: {c.get('content', '')[:600]}"
@@ -58,13 +60,15 @@ async def judge_faithfulness(
             f"Candidate answer: {answer}"
         )
 
-        msg = await client.messages.create(
+        msg = client.chat.completions.create(
             model=_JUDGE_MODEL,
             max_tokens=10,
-            system=_JUDGE_SYSTEM,
-            messages=[{"role": "user", "content": user_content}],
+            messages=[
+                {"role": "system", "content": _JUDGE_SYSTEM},
+                {"role": "user", "content": user_content},
+            ],
         )
-        verdict = msg.content[0].text.strip().upper()
+        verdict = msg.choices[0].message.content.strip().upper()
         return 1 if "YES" in verdict else 0
 
     except Exception as exc:  # noqa: BLE001

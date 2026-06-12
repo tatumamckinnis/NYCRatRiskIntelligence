@@ -117,6 +117,24 @@ class BgeMThreeEmbedder:
         return [v.tolist() for v in vecs]
 
 
+_bge_singleton: BgeMThreeEmbedder | None = None
+
+
+def _get_bge_embedder() -> BgeMThreeEmbedder:
+    global _bge_singleton
+    if _bge_singleton is None:
+        _bge_singleton = BgeMThreeEmbedder()
+    return _bge_singleton
+
+
+def embed_query_bge(query: str) -> list[float]:
+    """Embed a single retrieval query string using the local BGE-M3 model (free).
+
+    The model is loaded once and cached as a module-level singleton.
+    """
+    return _get_bge_embedder().encode([query])[0]
+
+
 def embed_chunks_bge(
     chunks: "list[CorpusChunk]",
     *,

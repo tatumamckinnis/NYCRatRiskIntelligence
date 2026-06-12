@@ -1,7 +1,7 @@
 """Streaming LLM generation for the /chat endpoint (T-41).
 
-Uses ``anthropic.AsyncAnthropic().messages.stream()`` with ``claude-haiku-4-5``.
-Wraps the call in an ``llm_span`` that records token counts and USD cost.
+Uses Groq ``llama-3.3-70b-versatile`` via litellm (free tier).
+Wraps the call in an ``llm_span`` that records token counts.
 Persists the completed message pair to ``app.chat_messages``.
 """
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_MODEL = "claude-haiku-4-5"
+_MODEL = "groq/llama-3.3-70b-versatile"
 _MAX_CONTEXT_CHARS = 4000  # per-chunk truncation for context window safety
 
 
@@ -53,56 +53,55 @@ async def generate_stream(
         session_id: Chat session UUID.
         conn:       Active asyncpg connection for message persistence.
     """
-    import anthropic  # noqa: PLC0415
+    import litellm  # noqa: PLC0415
 
     settings = get_settings()
-    if not settings.anthropic_api_key:
-        yield "Error: ANTHROPIC_API_KEY is not configured."
+    if not settings.groq_api_key:
+        yield "Error: GROQ_API_KEY is not configured."
         return
 
     context = _build_context(chunks)
     user_content = f"Context:\n{context}\n\nQuestion: {query}"
 
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    full_response = []
+    full_response: list[str] = []
     prompt_tokens = 0
     completion_tokens = 0
 
     with llm_span("chat_generate") as span:
         span.set_attribute("llm.model_name", _MODEL)
-        span.set_attribute("llm.provider", "anthropic")
+        span.set_attribute("llm.provider", "groq")
         span.set_attribute("llm.input_messages", f"system:{CHAT_SYSTEM_PROMPT[:200]}…")
 
         try:
-            async with client.messages.stream(
+            stream = await litellm.acompletion(
                 model=_MODEL,
                 max_tokens=1024,
-                system=CHAT_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_content}],
-            ) as stream:
-                async for text in stream.text_stream:
-                    full_response.append(text)
-                    yield text
-
-                # Final message for token counts
-                final_msg = await stream.get_final_message()
-                prompt_tokens = final_msg.usage.input_tokens
-                completion_tokens = final_msg.usage.output_tokens
+                api_key=settings.groq_api_key,
+                stream=True,
+                messages=[
+                    {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+            )
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content or ""
+                if delta:
+                    full_response.append(delta)
+                    yield delta
+                # Capture usage from the final chunk if present
+                if hasattr(chunk, "usage") and chunk.usage:
+                    prompt_tokens = chunk.usage.prompt_tokens or 0
+                    completion_tokens = chunk.usage.completion_tokens or 0
 
         except Exception as exc:  # noqa: BLE001
             log.error("LLM stream error: %s", exc)
             yield f"\n[Error: {exc}]"
             return
 
-        # Cost calculation
-        price_in = settings.llm_price_per_1m_input.get(_MODEL, 0.80)
-        price_out = settings.llm_price_per_1m_output.get(_MODEL, 4.00)
-        cost_usd = (prompt_tokens * price_in + completion_tokens * price_out) / 1_000_000
-
         span.set_attribute("llm.token_count.prompt", prompt_tokens)
         span.set_attribute("llm.token_count.completion", completion_tokens)
         span.set_attribute("llm.token_count.total", prompt_tokens + completion_tokens)
-        span.set_attribute("llm.usd_cost", cost_usd)
+        span.set_attribute("llm.usd_cost", 0.0)  # Groq free tier
 
     # Persist to app.chat_messages
     assistant_text = "".join(full_response)
@@ -113,7 +112,7 @@ async def generate_stream(
         assistant_content=assistant_text,
         chunks=chunks,
         latency_ms=None,
-        cost_usd=cost_usd,
+        cost_usd=0.0,
     )
 
 

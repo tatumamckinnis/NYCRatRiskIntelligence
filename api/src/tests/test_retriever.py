@@ -88,7 +88,7 @@ async def test_retrieve_returns_retrieved_chunks():
 
     with (
         patch("rat_api.rag.retriever._rewrite_query", return_value="rat signs NYC health code"),
-        patch("rat_api.rag.retriever.embed_query", return_value=[0.1] * 1024),
+        patch("rat_api.rag.retriever.embed_query", return_value=[0.1] * 1024),  # BGE-M3 local
         patch("rat_api.rag.retriever.get_reranker", return_value=None),
     ):
         from rat_api.rag.retriever import retrieve
@@ -103,11 +103,11 @@ async def test_retrieve_returns_retrieved_chunks():
 
 @pytest.mark.asyncio
 async def test_embed_query_uses_query_input_type():
-    """embed_query must be called with input_type='query' for retrieval accuracy."""
+    """embed_query (BGE-M3) must be called exactly once per retrieve() call."""
     calls = []
 
-    def fake_embed_query(query, *, api_key, model="voyage-3"):
-        calls.append({"query": query, "api_key": api_key})
+    def fake_embed_query(query):
+        calls.append({"query": query})
         return [0.0] * 1024
 
     mock_conn = AsyncMock()
@@ -122,5 +122,3 @@ async def test_embed_query_uses_query_input_type():
         await retrieve("test query", mock_conn)
 
     assert len(calls) == 1, "embed_query should be called exactly once"
-    # The actual input_type check is in embed.py (input_type="query") —
-    # here we just assert it was called at all (prevents regression to document mode)
