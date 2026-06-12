@@ -123,7 +123,8 @@ _bge_singleton: BgeMThreeEmbedder | None = None
 def _get_bge_embedder() -> BgeMThreeEmbedder:
     global _bge_singleton
     if _bge_singleton is None:
-        _bge_singleton = BgeMThreeEmbedder()
+        # Force CPU — MPS runs out of memory on large batches (>~100 chunks).
+        _bge_singleton = BgeMThreeEmbedder(device="cpu")
     return _bge_singleton
 
 
@@ -154,7 +155,7 @@ def embed_chunks_bge(
         List of 1024-dim float vectors, one per chunk.
     """
     if embedder is None:
-        embedder = BgeMThreeEmbedder(device=device)
+        embedder = _get_bge_embedder() if device is None else BgeMThreeEmbedder(device=device)
     texts = [c.content_with_prefix for c in chunks]
     vecs = embedder.encode(texts, batch_size=batch_size)
     log.info("BGE-M3 embedded %d chunks", len(chunks))
