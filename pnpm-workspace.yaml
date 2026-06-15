@@ -1,2 +1,8 @@
 packages:
   - "web"
+
+ignoredBuiltDependencies:
+  - "@sentry/cli"
+  - "@vaadin/vaadin-usage-statistics"
+  - sharp
+  - unrs-resolver

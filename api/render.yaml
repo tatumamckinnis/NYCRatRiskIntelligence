@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: rat-api
+    runtime: python
+    buildCommand: pip install uv && uv sync --package rat-api
+    startCommand: uv run --package rat-api uvicorn rat_api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_DATABASE_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OTEL_SERVICE_NAME
+        value: rat-api
+      - key: PYTHON_VERSION
+        value: "3.12"
+    autoDeploy: true
+    plan: free

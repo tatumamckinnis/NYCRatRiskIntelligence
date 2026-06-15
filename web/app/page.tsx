@@ -1,0 +1,161 @@
+"use client";
+
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
+import Link from "next/link";
+import { Nav } from "@/components/nav";
+import { Badge } from "@/components/ui/badge";
+import { getMapRisk } from "@/lib/api";
+
+// Lazy-load map (uses browser APIs not available in SSR)
+const RiskMap = dynamic(
+  () => import("@/components/map/RiskMap").then((m) => m.RiskMap),
+  { ssr: false, loading: () => <div className="flex-1 bg-muted/30 rounded-lg animate-pulse" /> }
+);
+
+// Generate last 52 ISO Mondays
+function lastNWeeks(n: number): string[] {
+  const weeks: string[] = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now);
+    const day = d.getDay();
+    d.setDate(d.getDate() - ((day + 6) % 7) - i * 7);
+    weeks.push(d.toISOString().slice(0, 10));
+  }
+  return weeks;
+}
+
+export default function HomePage() {
+  const weeks = useMemo(() => lastNWeeks(52), []);
+  const [selectedWeek, setSelectedWeek] = useState(weeks[weeks.length - 1]);
+
+  const { data: mapItems = [], isLoading } = useQuery({
+    queryKey: ["map-risk", selectedWeek],
+    queryFn: () => getMapRisk(selectedWeek),
+    retry: false,
+  });
+
+  const decileDistrib = useMemo(() => {
+    const counts = Array(10).fill(0) as number[];
+    mapItems.forEach((item) => counts[item.risk_decile - 1]++);
+    return counts;
+  }, [mapItems]);
+
+  const highRisk = mapItems.filter((i) => i.risk_decile >= 8).length;
+
+  return (
+    <div className="flex flex-col h-screen">
+      <Nav />
+
+      <main className="flex flex-1 min-h-0 gap-0">
+        {/* Sidebar */}
+        <aside className="w-72 border-r bg-muted/30 flex flex-col p-4 gap-4 overflow-y-auto shrink-0">
+          <div>
+            <h1 className="text-lg font-semibold leading-tight">
+              NYC Rat Risk Map
+            </h1>
+            <p className="text-xs text-muted-foreground mt-1">
+              Neighborhood-level rodent risk predictions updated weekly.
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Week
+            </div>
+            <div className="text-sm font-mono">{selectedWeek}</div>
+          </div>
+
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-4 bg-muted rounded animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Summary
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="border rounded p-2 bg-background">
+                    <div className="text-muted-foreground">NTAs mapped</div>
+                    <div className="text-lg font-semibold">{mapItems.length}</div>
+                  </div>
+                  <div className="border rounded p-2 bg-background">
+                    <div className="text-muted-foreground">High risk (D8+)</div>
+                    <div className="text-lg font-semibold text-red-500">
+                      {highRisk}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                  Decile Distribution
+                </div>
+                <div className="flex gap-0.5 items-end h-12">
+                  {decileDistrib.map((count, i) => {
+                    const max = Math.max(...decileDistrib, 1);
+                    const pct = (count / max) * 100;
+                    return (
+                      <div
+                        key={i}
+                        title={`Decile ${i + 1}: ${count} NTAs`}
+                        className="flex-1 rounded-t-sm"
+                        style={{
+                          height: `${Math.max(pct, 4)}%`,
+                          background: `oklch(${0.75 - i * 0.05} ${0.1 + i * 0.015} 30)`,
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground mt-0.5">
+                  <span>D1</span>
+                  <span>D10</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="mt-auto pt-4 border-t space-y-2">
+            <Link
+              href="/chat"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              ⚖️ Ask the regulation assistant
+            </Link>
+            <Link
+              href="/about"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              📖 About this project
+            </Link>
+          </div>
+        </aside>
+
+        {/* Map */}
+        <div className="flex-1 relative p-4">
+          {isLoading && (
+            <div className="absolute inset-4 flex items-center justify-center bg-background/50 z-10 rounded-lg">
+              <Badge variant="outline" className="animate-pulse">
+                Loading risk data…
+              </Badge>
+            </div>
+          )}
+          <RiskMap
+            items={mapItems}
+            week={selectedWeek}
+            onWeekChange={setSelectedWeek}
+            weeks={weeks}
+          />
+        </div>
+      </main>
+    </div>
+  );
+}
