@@ -81,12 +81,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:  # noqa: BLE001
         app.state.decile_thresholds = [i / 10 for i in range(1, 11)]
 
-    # Load BGE Reranker (lazy — skip if sentence-transformers not installed)
-    try:
-        from rat_api.rag.reranker import load_reranker  # noqa: PLC0415
-        load_reranker()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("BGE Reranker not loaded (will skip reranking): %s", exc)
+    # Load BGE Reranker (skip on low-memory environments via DISABLE_RERANKER=true)
+    if not settings.disable_reranker:
+        try:
+            from rat_api.rag.reranker import load_reranker  # noqa: PLC0415
+            load_reranker()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("BGE Reranker not loaded (will skip reranking): %s", exc)
+    else:
+        log.info("BGE Reranker disabled via DISABLE_RERANKER env var.")
 
     yield  # app is running
 

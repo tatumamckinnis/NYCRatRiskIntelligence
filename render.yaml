@@ -16,5 +16,11 @@ services:
         value: rat-api
       - key: PYTHON_VERSION
         value: "3.12"
+      # Free tier has 512MB RAM — skip the ~570MB BGE-M3 and ~570MB BGE Reranker models.
+      # Retrieval falls back to BM25-only (still accurate enough for cited answers).
+      - key: DISABLE_VECTOR_SEARCH
+        value: "true"
+      - key: DISABLE_RERANKER
+        value: "true"
     autoDeploy: true
     plan: free

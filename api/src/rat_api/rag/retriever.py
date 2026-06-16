@@ -279,14 +279,18 @@ async def retrieve(
         rewritten = _rewrite_query(query, api_key=settings.groq_api_key)
         span.set_attribute("retrieval.rewritten_query", rewritten)
 
-        # Step 2 — dense retrieval (BGE-M3 local, no API key needed)
-        query_vec = embed_query(rewritten)
-        dense_chunks = await _dense_retrieve(query_vec, conn, top_k=top_k_dense)
+        # Step 2 — dense retrieval (BGE-M3 local; skipped when DISABLE_VECTOR_SEARCH=true)
+        if not settings.disable_vector_search:
+            query_vec = embed_query(rewritten)
+            dense_chunks = await _dense_retrieve(query_vec, conn, top_k=top_k_dense)
+        else:
+            log.debug("Vector search disabled; using BM25-only retrieval.")
+            dense_chunks = []
 
         # Step 3 — BM25 retrieval
         bm25_chunks = await _bm25_retrieve(rewritten, conn, top_k=top_k_bm25)
 
-        # Step 4 — RRF fusion
+        # Step 4 — RRF fusion (or just BM25 order when dense is empty)
         fused = _rrf_fuse([dense_chunks, bm25_chunks], top_k=top_k_after_rrf)
 
         # Step 5 — rerank

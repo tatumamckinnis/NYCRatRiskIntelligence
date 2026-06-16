@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     model_artifacts_dir: str = "ml/artifacts"
     model_name: str = "catboost"
 
+    # --- Production resource flags (for low-memory environments like Render free tier) ---
+    # Set DISABLE_VECTOR_SEARCH=true to skip BGE-M3 query embedding and use BM25-only retrieval.
+    disable_vector_search: bool = False
+    # Set DISABLE_RERANKER=true to skip loading BGE Reranker v2-M3 at startup.
+    disable_reranker: bool = False
+
     # --- Spend guard ---
     # Warn (log + Sentry alert) if cumulative daily LLM spend exceeds this.
     daily_spend_alert_usd: float = 1.0
