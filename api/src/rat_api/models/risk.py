@@ -36,6 +36,9 @@ class MapRiskItem(BaseModel):
     nta_id: str
     risk_score: float = Field(ge=0.0, le=1.0)
     risk_decile: int = Field(ge=1, le=10)
+    nta_name: str | None = None
+    centroid_lat: float | None = None
+    centroid_lon: float | None = None
 
 
 class InspectionItem(BaseModel):

@@ -32,6 +32,9 @@ export const MapRiskItemSchema = z.object({
   nta_id: z.string(),
   risk_score: z.number(),
   risk_decile: z.number().int(),
+  nta_name: z.string().nullable().optional(),
+  centroid_lat: z.number().nullable().optional(),
+  centroid_lon: z.number().nullable().optional(),
 });
 
 export const InspectionItemSchema = z.object({

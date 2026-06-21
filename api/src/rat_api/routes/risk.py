@@ -145,6 +145,17 @@ async def get_risk_map(
 
     conn = await asyncpg.connect(settings.database_url)
     try:
+        # Fetch NTA name + centroid for all boundaries once
+        boundary_rows = await conn.fetch(
+            """
+            SELECT nta_id, nta_name,
+                   ST_Y(ST_Centroid(geom)) AS centroid_lat,
+                   ST_X(ST_Centroid(geom)) AS centroid_lon
+            FROM raw.nta_boundaries
+            """
+        )
+        boundaries = {r["nta_id"]: r for r in boundary_rows}
+
         # Try the materialised cache first
         cached = await conn.fetch(
             """
@@ -163,6 +174,9 @@ async def get_risk_map(
                     nta_id=r["nta_id"],
                     risk_score=float(r["risk_score"]),
                     risk_decile=int(r["risk_decile"]),
+                    nta_name=boundaries.get(r["nta_id"], {}).get("nta_name"),
+                    centroid_lat=boundaries.get(r["nta_id"], {}).get("centroid_lat"),
+                    centroid_lon=boundaries.get(r["nta_id"], {}).get("centroid_lon"),
                 )
                 for r in cached
             ]
@@ -184,11 +198,15 @@ async def get_risk_map(
             decile_thresholds=request.app.state.decile_thresholds,
             model_version=model_bundle["version"],
         )
+        b = boundaries.get(row["nta_id"], {})
         items.append(
             MapRiskItem(
                 nta_id=row["nta_id"],
                 risk_score=result.risk_score,
                 risk_decile=result.risk_decile,
+                nta_name=b.get("nta_name"),
+                centroid_lat=b.get("centroid_lat"),
+                centroid_lon=b.get("centroid_lon"),
             )
         )
     return sorted(items, key=lambda x: x.nta_id)

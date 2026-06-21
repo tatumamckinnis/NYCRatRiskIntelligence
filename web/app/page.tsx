@@ -45,6 +45,14 @@ export default function HomePage() {
 
   const highRisk = mapItems.filter((i) => i.risk_decile >= 8).length;
 
+  const topNeighborhoods = useMemo(
+    () =>
+      [...mapItems]
+        .sort((a, b) => b.risk_score - a.risk_score)
+        .slice(0, 5),
+    [mapItems]
+  );
+
   return (
     <div className="flex flex-col h-screen">
       <Nav />
@@ -93,6 +101,36 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
+
+              {topNeighborhoods.length > 0 && (
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
+                    Highest Risk This Week
+                  </div>
+                  <ol className="space-y-1">
+                    {topNeighborhoods.map((item, i) => (
+                      <li
+                        key={item.nta_id}
+                        className="flex items-center justify-between text-xs cursor-pointer hover:text-foreground text-muted-foreground transition-colors"
+                        onClick={() => window.location.href = `/nta/${item.nta_id}`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <span className="w-4 text-right tabular-nums opacity-50">{i + 1}.</span>
+                          <span className="truncate max-w-[140px]">{item.nta_name ?? item.nta_id}</span>
+                        </span>
+                        <span
+                          className="font-mono font-semibold shrink-0"
+                          style={{
+                            color: item.risk_score > 0.7 ? "#dc2626" : item.risk_score > 0.4 ? "#f97316" : "#fbbf24",
+                          }}
+                        >
+                          D{item.risk_decile}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
 
               <div>
                 <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
