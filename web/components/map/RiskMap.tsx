@@ -67,7 +67,7 @@ export function RiskMap({ items, week, onWeekChange, weeks }: RiskMapProps) {
         container: mapContainer.current!,
         style: MAPTILER_KEY
           ? `https://api.maptiler.com/maps/streets/style.json?key=${MAPTILER_KEY}`
-          : "https://demotiles.maplibre.org/style.json",
+          : "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
         center: [-73.944, 40.678],
         zoom: 10.5,
       }) as MaplibreMap;

@@ -31,10 +31,10 @@ export default function HomePage() {
   const weeks = useMemo(() => lastNWeeks(52), []);
   const [selectedWeek, setSelectedWeek] = useState(weeks[weeks.length - 1]);
 
-  const { data: mapItems = [], isLoading } = useQuery({
+  const { data: mapItems = [], isLoading, isError } = useQuery({
     queryKey: ["map-risk", selectedWeek],
     queryFn: () => getMapRisk(selectedWeek),
-    retry: false,
+    retry: 2,
   });
 
   const decileDistrib = useMemo(() => {
@@ -184,6 +184,19 @@ export default function HomePage() {
               <Badge variant="outline" className="animate-pulse">
                 Loading risk data…
               </Badge>
+            </div>
+          )}
+          {isError && (
+            <div className="absolute inset-4 flex items-center justify-center bg-background/80 z-10 rounded-lg">
+              <div className="text-center text-sm text-muted-foreground space-y-1">
+                <div className="font-medium text-foreground">Could not load risk data</div>
+                <div>The API may be waking up — refresh in 30 seconds</div>
+              </div>
+            </div>
+          )}
+          {!isLoading && !isError && mapItems.length === 0 && (
+            <div className="absolute inset-4 flex items-center justify-center bg-background/80 z-10 rounded-lg">
+              <div className="text-sm text-muted-foreground">No data available for this week</div>
             </div>
           )}
           <RiskMap
