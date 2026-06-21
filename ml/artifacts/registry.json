@@ -1,0 +1,9 @@
+{
+  "catboost": "ml/artifacts/tabular/catboost/2026-06-05T18-42-14",
+  "lightgbm": "ml/artifacts/tabular/lightgbm/2026-05-28T18-53-46",
+  "logistic_regression": "ml/artifacts/tabular/logistic_regression/2026-05-28T18-53-46",
+  "tft": "ml/artifacts/tabular/tft/2026-06-05T18-41-56",
+  "chronos": "ml/artifacts/chronos/chronos/2026-06-05T18-49-21",
+  "fusion_lr": "ml/artifacts/tabular/fusion_lr/2026-06-05T19-03-33",
+  "fusion_mlp": "ml/artifacts/tabular/fusion_mlp/2026-06-05T19-03-34"
+}
