@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.model_bundle = bundle
     except (FileNotFoundError, KeyError) as exc:
         # Start in degraded mode — /health will return 503
+        log.error("Model loading failed — starting in degraded mode: %s", exc)
         app.state.model_bundle = None
         app.state.startup_error = str(exc)
         app.state.decile_thresholds = [i / 10 for i in range(1, 11)]
