@@ -1,11 +1,15 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
-  // Transpile ESM-only packages
   transpilePackages: ["maplibre-gl", "react-map-gl"],
-
-  // Empty turbopack config opts into Turbopack (Next.js 16 default)
   turbopack: {},
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: true,
+  disableLogger: true,
+  automaticVercelMonitors: false,
+});
