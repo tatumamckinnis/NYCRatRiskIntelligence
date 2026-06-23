@@ -29,9 +29,8 @@ jobs:
         # Fails the job if Recall@5 < 0.80 or faithfulness < 0.75.
         run: uv run --package rat-evals python -m rat_evals.runners
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          NEXT_PUBLIC_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          RAT_API_URL: ${{ secrets.RAT_API_URL }}
 
       - name: Upload results artifact
         uses: actions/upload-artifact@v4
