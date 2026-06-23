@@ -14,22 +14,24 @@ const RiskMap = dynamic(
   { ssr: false, loading: () => <div className="flex-1 bg-muted/30 rounded-lg animate-pulse" /> }
 );
 
-// Generate last 52 ISO Mondays
-function lastNWeeks(n: number): string[] {
+// Latest week with materialized predictions in the DB
+const LATEST_DATA_WEEK = "2026-05-11";
+
+// Generate ISO Mondays from a given start date up to LATEST_DATA_WEEK
+function weeksUpTo(latest: string): string[] {
+  const end = new Date(latest);
   const weeks: string[] = [];
-  const now = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(now);
-    const day = d.getDay();
-    d.setDate(d.getDate() - ((day + 6) % 7) - i * 7);
+  const d = new Date("2023-05-22"); // earliest panel week
+  while (d <= end) {
     weeks.push(d.toISOString().slice(0, 10));
+    d.setDate(d.getDate() + 7);
   }
   return weeks;
 }
 
 export default function HomePage() {
-  const weeks = useMemo(() => lastNWeeks(52), []);
-  const [selectedWeek, setSelectedWeek] = useState(weeks[weeks.length - 1]);
+  const weeks = useMemo(() => weeksUpTo(LATEST_DATA_WEEK), []);
+  const [selectedWeek, setSelectedWeek] = useState(LATEST_DATA_WEEK);
 
   const { data: mapItems = [], isLoading, isError } = useQuery({
     queryKey: ["map-risk", selectedWeek],
