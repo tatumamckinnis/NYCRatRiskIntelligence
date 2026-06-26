@@ -110,7 +110,7 @@ async def retrieve(
 ```
 
 Steps:
-1. **Query rewriting**: Claude Haiku with a statutory vocabulary expansion prompt (≤200 tokens). Log rewrite as a span attribute.
+1. **Query rewriting**: Groq `llama-3.1-8b-instant` with a statutory vocabulary expansion prompt (≤200 tokens). Log rewrite as a span attribute. (Originally planned as Claude Haiku — see ADR 0006.)
 2. **Dense retrieval**: embed rewritten query via Voyage `input_type="query"`, pgvector HNSW cosine top-30.
 3. **BM25 retrieval**: `plainto_tsquery` with `ts_rank_cd` on `tsvector` index, top-30.
 4. **RRF fusion**: `score(d) = Σ 1/(k + rank_i(d))` with `k=60`; take top-40 unique chunks.
@@ -169,8 +169,8 @@ by a "Sources:" list of citations with brief quotes."""
 **`generator.py`**:
 - `async def generate_stream(query, chunks, *, session_id) -> AsyncIterator[str]`:
   - Builds messages list from `CHAT_SYSTEM_PROMPT` + retrieved chunks formatted as context + user query.
-  - Calls `anthropic.AsyncAnthropic().messages.stream()` with `model="claude-haiku-4-5"`.
-  - Wraps in an `llm_span` that records `llm.token_count.*` and `llm.usd_cost` (from `PRICE_TABLE` in `config.py`).
+  - Calls `litellm.acompletion()` with `model="groq/llama-3.3-70b-versatile"` and streaming. (Originally planned as Claude Haiku — see ADR 0006.)
+  - Wraps in an `llm_span` that records `llm.token_count.*` and `llm.usd_cost` (logged as 0.0 on Groq free tier).
   - Persists user message and assistant response to `app.chat_messages` when stream completes.
 
 **`routes/chat.py`** — `POST /chat`:
@@ -215,8 +215,8 @@ by a "Sources:" list of citations with brief quotes."""
 - `citation_accuracy(expected_citations, generated_answer) -> float`: regex match for each citation in generated text.
 - `refusal_calibration(items, responses) -> float`: fraction of unanswerable items that correctly produced a "not in the documents" response.
 
-**`judge.py`** — faithfulness via Claude Sonnet 4.5:
-- `async def judge_faithfulness(question, answer, chunks) -> int`: binary 0/1. Sends chunks + answer to Claude Sonnet with a rubric prompt; parses `FAITHFUL: YES/NO`.
+**`judge.py`** — faithfulness judge:
+- `async def judge_faithfulness(question, answer, chunks) -> int`: binary 0/1. Sends chunks + answer via `litellm` with `model="groq/llama-3.3-70b-versatile"` and a rubric prompt; parses `FAITHFUL: YES/NO`. (Originally planned as Claude Sonnet 4.5 — see ADR 0006.)
 
 **`runners.py`**:
 - `async def run_eval_suite(base_url, gold_path) -> dict`: loads JSONL, calls `POST /chat` for each question, collects retrieved chunks from JSONL trace sink (or via a `?debug=1` query param that returns chunks in response), computes all metrics.
@@ -297,7 +297,7 @@ api/src/tests/test_chat_route.py
 
 1. **PDF download strategy**: The five source PDFs may be behind redirects or require accepting terms. For each script, prefer a direct URL to the official PDF; fall back to a local `data/pdfs/<filename>.pdf` if the URL is unstable. Document the download URL in a comment at the top of each script.
 
-2. **BGE Reranker memory**: `BAAI/bge-reranker-v2-m3` is ~570MB. Loading it at API startup on Render's free tier (512MB RAM) will OOM. Options: (a) skip BGE Reranker in prod and use Cohere (requires API key), (b) use a smaller model (`BAAI/bge-reranker-base`, ~280MB), (c) lazy-load on first request. For Phase 4 local dev, full BGE Reranker v2-M3 is fine. Document the Render trade-off in `docs/decisions/0005-reranker-prod.md`.
+2. **BGE Reranker memory**: `BAAI/bge-reranker-v2-m3` is ~570MB. Loading it at API startup on Render's free tier (512MB RAM) will OOM. **Resolved**: disable both BGE-M3 and the Reranker in prod via `DISABLE_VECTOR_SEARCH=true` and `DISABLE_RERANKER=true` env vars; BM25-only retrieval in production. See ADR 0007 (not the originally planned 0005-reranker-prod.md — that reference was superseded).
 
 3. **JSONL trace sink path**: `OBS_JSONL_PATH` defaults to `obs/traces.jsonl` relative to the working directory. The eval runner reads from this file to get retrieved chunks per query. Ensure the path is writable in the Docker container (add a volume mount in `docker-compose.yml`).
 

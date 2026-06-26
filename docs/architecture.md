@@ -30,7 +30,7 @@ flowchart TD
         F1[build_panel.py\nnta_week_panel]
         F2[build_spatial_lags.py\nqueen contiguity]
         F3[build_regime_indicators.py\npolicy booleans]
-        F4[clay_embeddings.py\nClay v1.5 → 32-dim PCA]
+        F4[clay_embeddings.py\nClay v1.5 → 32-dim PCA\nCUT — see ADR 0005]
     end
 
     subgraph Models["Model Training  ·  ml/artifacts"]
@@ -39,8 +39,8 @@ flowchart TD
         M3[Logistic Regression\nBaseline]
         M4[TabPFN v2\nPer-borough small-N]
         M5[TFT\nDarts 12-week forecast]
-        M6[Chronos-2\nFine-tuned challenger]
-        M7[Fusion Meta-Learner\nCalibrated LR over OOF]
+        M6[Chronos-2\nFine-tuned challenger\nCUT — schedule]
+        M7[Fusion Meta-Learner\nCalibrated LR over OOF\nCatBoost + TFT only]
     end
 
     subgraph DB["Supabase Postgres\nPostGIS + pgvector + pg_trgm"]
@@ -51,10 +51,10 @@ flowchart TD
 
     subgraph RAG["RAG Pipeline"]
         R1[Chunking\nSection-aware hierarchical]
-        R2[Embeddings\nvoyage-3-large + BGE-M3]
-        R3[Retrieval\nBM25 + dense + RRF]
-        R4[Reranker\nBGE v2-M3 self-hosted]
-        R5[Generation\nClaude Haiku 4.5 / Groq fallback]
+        R2[Embeddings\nvoyage-3 + BGE-M3\ndev only — see ADR 0007]
+        R3[Retrieval\nBM25 only in prod\nBM25 + dense + RRF in dev]
+        R4[Reranker\nBGE v2-M3 dev only\ndisabled in prod — ADR 0007]
+        R5[Generation\nGroq llama-3.3-70b-versatile\nsee ADR 0006]
     end
 
     subgraph API["FastAPI Backend  ·  Render"]
@@ -137,28 +137,25 @@ sequenceDiagram
 
 ## Data Flow: RAG Chat Request
 
+> **Production path** (Render free tier — BM25 only, see ADR 0007):
+> Dense search and BGE Reranker are disabled (`DISABLE_VECTOR_SEARCH=true`, `DISABLE_RERANKER=true`).
+> Dev path (local / Docker Compose) runs the full hybrid pipeline with voyage-3 + BGE Reranker.
+
 ```mermaid
 sequenceDiagram
     participant C as Client
     participant API as FastAPI
-    participant VoyageAI
-    participant DB as pgvector + tsvector
-    participant BGE as BGE Reranker
-    participant LLM as Claude Haiku
+    participant Groq as Groq API
+    participant DB as tsvector (BM25)
 
     C->>API: POST /chat {"message": "What is the fine for rat violations?"}
-    API->>LLM: Query rewriting (expand statutory terms)
-    LLM-->>API: rewritten_query
-    API->>VoyageAI: embed(rewritten_query, input_type="query")
-    VoyageAI-->>API: 1024-dim vector
-    API->>DB: Dense search (pgvector HNSW cosine, top-30)
-    API->>DB: BM25 search (tsvector plainto_tsquery, top-30)
-    DB-->>API: 60 candidate chunks
-    API->>API: RRF fusion (k=60) → top-40
-    API->>BGE: rerank(query, top-40 chunks) → top-6
-    BGE-->>API: ranked chunks with scores
-    API->>LLM: generate(system_prompt, query, chunks)
-    LLM-->>C: SSE stream {type: "chunk"|"citation"|"done"}
+    API->>Groq: Query rewriting — llama-3.1-8b-instant (expand statutory terms)
+    Groq-->>API: rewritten_query
+    API->>DB: BM25 search (plainto_tsquery ts_rank_cd, top-30)
+    DB-->>API: 30 ranked chunks
+    Note over API: Dense search + RRF + BGE Reranker<br/>run in dev only (disabled in prod — ADR 0007)
+    API->>Groq: generate — llama-3.3-70b-versatile (system_prompt + query + chunks)
+    Groq-->>C: SSE stream {type: "chunk"|"citation"|"done"}
 ```
 
 ---
@@ -197,6 +194,6 @@ sequenceDiagram
 | Logistic Regression | Linear | 23 NTA-week features | Calibrated probability | Baseline |
 | TabPFN v2 | Transformer in-context | Per-borough subsets ≤10k rows | Calibrated probability | Small-N complement |
 | TFT | Temporal Fusion Transformer | 52-week context + covariates | p10/p50/p90 12-week forecast | Probabilistic time series |
-| Chronos-2 | LM-style sequence model | Count history | p10/p50/p90 12-week forecast | Challenger; different inductive bias |
-| Fusion LR | Stacked meta-learner | CatBoost + TFT + Chronos OOF + Clay PCA | Calibrated ensemble probability | Primary production model |
-| Clay v1.5 | MAE satellite encoder | 7-band Sentinel-2 patch 256×256 | 768-dim → 32-dim PCA | Static spatial features |
+| Chronos-2 | LM-style sequence model | Count history | p10/p50/p90 12-week forecast | **Cut** (schedule) — GPU required for fine-tune |
+| Fusion LR | Stacked meta-learner | CatBoost + TFT OOF predictions | Calibrated ensemble probability | Primary production model |
+| Clay v1.5 | MAE satellite encoder | 7-band Sentinel-2 patch 256×256 | 768-dim → 32-dim PCA | **Cut** (ADR 0005) — checkpoint load blocked |
