@@ -67,4 +67,5 @@ export interface Citation {
   authority: string;
   document: string;
   content: string;
+  chunk_id?: string;
 }

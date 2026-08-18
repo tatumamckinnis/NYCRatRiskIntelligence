@@ -57,16 +57,24 @@ export function ChatThread() {
 
       try {
         let full = "";
-        for await (const token of readChatStream(question, sessionId, ctrl.signal)) {
-          full += token;
+        let retrievedCitations: Citation[] = [];
+        for await (const evt of readChatStream(question, sessionId, ctrl.signal)) {
+          if (evt.type === "citations") {
+            retrievedCitations = evt.data;
+            continue;
+          }
+          full += evt.data;
           setMessages((prev) => {
             const next = [...prev];
             next[next.length - 1] = { role: "assistant", content: full };
             return next;
           });
         }
-        // Extract citations from final response
-        const citations = parseCitations(full);
+        // Prefer real retrieved-chunk metadata (has actual quoted content);
+        // fall back to regex-parsed §-citations if the server didn't send
+        // any (e.g. no chunks retrieved, or an older API deployment).
+        const citations =
+          retrievedCitations.length > 0 ? retrievedCitations : parseCitations(full);
         setMessages((prev) => {
           const next = [...prev];
           next[next.length - 1] = {

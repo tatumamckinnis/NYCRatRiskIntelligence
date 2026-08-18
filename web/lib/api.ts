@@ -10,6 +10,7 @@ import {
   type NtaRiskResponse,
   type MapRiskItem,
   type InspectionItem,
+  type Citation,
 } from "./types";
 
 const BASE_URL =
@@ -65,11 +66,15 @@ export function streamChat(
   throw new Error("Use readChatStream for streaming");
 }
 
+export type ChatStreamEvent =
+  | { type: "token"; data: string }
+  | { type: "citations"; data: Citation[] };
+
 export async function* readChatStream(
   question: string,
   sessionId?: string,
   signal?: AbortSignal
-): AsyncGenerator<string> {
+): AsyncGenerator<ChatStreamEvent> {
   const body: Record<string, string> = { question };
   if (sessionId) body.session_id = sessionId;
 
@@ -89,6 +94,11 @@ export async function* readChatStream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // Tracks the preceding `event:` line per the SSE spec — resets to the
+  // default "message" type on each blank line (dispatch boundary). Without
+  // this, the `event: citations` frame would be misread as literal chat
+  // text and dumped into the message bubble as raw JSON.
+  let currentEvent: "message" | "citations" = "message";
 
   try {
     while (true) {
@@ -98,11 +108,27 @@ export async function* readChatStream(
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const data = line.slice(6);
-          if (data === "[DONE]") return;
-          yield data;
+        if (line === "") {
+          currentEvent = "message";
+          continue;
         }
+        if (line.startsWith("event: ")) {
+          currentEvent = line.slice(7).trim() as "message" | "citations";
+          continue;
+        }
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6);
+        if (currentEvent === "citations") {
+          try {
+            yield { type: "citations", data: JSON.parse(data) as Citation[] };
+          } catch {
+            // malformed citations frame — ignore, keep streaming tokens
+          }
+          currentEvent = "message";
+          continue;
+        }
+        if (data === "[DONE]") return;
+        yield { type: "token", data };
       }
     }
   } finally {
