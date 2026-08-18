@@ -18,14 +18,16 @@ Public API
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import asyncpg
+from rat_ml.rag.embed import (
+    embed_query_bge as embed_query,  # noqa: F401 — module-level so tests can patch it
+)
 
 from rat_api.config import get_settings
-from rat_api.obs.tracing import retriever_span, reranker_span
+from rat_api.obs.tracing import reranker_span, retriever_span
 from rat_api.rag.reranker import get_reranker  # noqa: F401 — module-level so tests can patch it
-from rat_ml.rag.embed import embed_query_bge as embed_query  # noqa: F401 — module-level so tests can patch it
 
 log = logging.getLogger(__name__)
 
@@ -154,12 +156,15 @@ async def _bm25_retrieve(
     doesn't need *every* term to be a candidate at all.
     """
     sql = """
+        WITH q AS (
+            SELECT replace(plainto_tsquery('english', $1)::text, ' & ', ' | ') AS tsq
+        )
         SELECT
             chunk_id, document, citation, authority, section_path,
             content, content_with_prefix, parent_chunk_id,
-            ts_rank_cd(content_tsv, to_tsquery('english', replace(plainto_tsquery('english', $1)::text, ' & ', ' | '))) AS score
-        FROM app.health_code_chunks
-        WHERE content_tsv @@ to_tsquery('english', replace(plainto_tsquery('english', $1)::text, ' & ', ' | '))
+            ts_rank_cd(content_tsv, to_tsquery('english', q.tsq)) AS score
+        FROM app.health_code_chunks, q
+        WHERE content_tsv @@ to_tsquery('english', q.tsq)
         ORDER BY score DESC
         LIMIT $2
     """
@@ -237,7 +242,10 @@ async def _expand_parents(
     if not parent_ids:
         return chunks
 
-    sql = "SELECT chunk_id, content_with_prefix FROM app.health_code_chunks WHERE chunk_id = ANY($1)"
+    sql = (
+        "SELECT chunk_id, content_with_prefix FROM app.health_code_chunks "
+        "WHERE chunk_id = ANY($1)"
+    )
     try:
         rows = await conn.fetch(sql, parent_ids)
     except Exception:  # noqa: BLE001
@@ -325,7 +333,9 @@ async def retrieve(
                 final = reranker.rerank(rewritten, fused, top_k=top_k_final)
                 rspan.set_attribute("reranker.model", reranker.model_name)
             elif settings.cohere_api_key:
-                final = _cohere_rerank(rewritten, fused, api_key=settings.cohere_api_key, top_k=top_k_final)
+                final = _cohere_rerank(
+                    rewritten, fused, api_key=settings.cohere_api_key, top_k=top_k_final
+                )
                 rspan.set_attribute("reranker.model", "cohere-rerank-3.5")
             else:
                 final = fused[:top_k_final]
@@ -365,15 +375,18 @@ def _cohere_rerank(
     if not chunks:
         return []
     try:
-        import cohere  # noqa: PLC0415
         from dataclasses import replace  # noqa: PLC0415
+
+        import cohere  # noqa: PLC0415
         client = cohere.Client(api_key=api_key)
         docs = [c.content for c in chunks]
         resp = client.rerank(model="rerank-english-v3.0", query=query, documents=docs, top_n=top_k)
         result = []
         for hit in resp.results:
             chunk = chunks[hit.index]
-            result.append(replace(chunk, score=hit.relevance_score, retrieval_method="cohere_rerank"))
+            result.append(
+                replace(chunk, score=hit.relevance_score, retrieval_method="cohere_rerank")
+            )
         return result
     except Exception as exc:  # noqa: BLE001
         log.warning("Cohere rerank failed (%s); falling back to RRF order.", exc)

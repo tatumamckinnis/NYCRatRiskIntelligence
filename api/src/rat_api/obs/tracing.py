@@ -20,11 +20,12 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
@@ -89,7 +90,9 @@ class JsonlSpanExporter(SpanExporter):
 _tracer_provider: TracerProvider | None = None
 
 
-def setup_tracing(service_name: str, *, otel_endpoint: str = "", jsonl_path: str = "obs/traces.jsonl") -> None:
+def setup_tracing(
+    service_name: str, *, otel_endpoint: str = "", jsonl_path: str = "obs/traces.jsonl"
+) -> None:
     """Configure the global TracerProvider.
 
     Args:
@@ -141,21 +144,21 @@ def _span(kind_value: str, name: str) -> Generator[trace.Span, None, None]:
         yield span
 
 
-def chain_span(name: str) -> "contextlib.AbstractContextManager[trace.Span]":
+def chain_span(name: str) -> contextlib.AbstractContextManager[trace.Span]:
     """Root orchestration span (CHAIN)."""
     return _span("CHAIN", name)
 
 
-def llm_span(name: str) -> "contextlib.AbstractContextManager[trace.Span]":
+def llm_span(name: str) -> contextlib.AbstractContextManager[trace.Span]:
     """LLM generation span."""
     return _span("LLM", name)
 
 
-def retriever_span(name: str) -> "contextlib.AbstractContextManager[trace.Span]":
+def retriever_span(name: str) -> contextlib.AbstractContextManager[trace.Span]:
     """Vector / BM25 retrieval span."""
     return _span("RETRIEVER", name)
 
 
-def reranker_span(name: str) -> "contextlib.AbstractContextManager[trace.Span]":
+def reranker_span(name: str) -> contextlib.AbstractContextManager[trace.Span]:
     """Re-ranking span (BGE Reranker or Cohere)."""
     return _span("RERANKER", name)

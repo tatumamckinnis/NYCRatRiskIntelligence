@@ -3,22 +3,22 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
-import numpy as np
-
-log = logging.getLogger(__name__)
 import asyncpg
+import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from rat_api.config import get_settings
+from rat_api.ml.features import current_iso_week, get_all_nta_features_for_week
 from rat_api.ml.loader import load_models
-from rat_api.ml.features import get_all_nta_features_for_week, current_iso_week
 from rat_api.ml.predict import predict_risk
 from rat_api.obs.tracing import setup_tracing
 from rat_api.routes import chat, health, inspections, narrative, risk
+
+log = logging.getLogger(__name__)
 
 
 def _compute_decile_thresholds(scores: list[float]) -> list[float]:

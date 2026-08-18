@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import AsyncIterator, TYPE_CHECKING
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import asyncpg
 
@@ -32,7 +33,7 @@ _MODEL = "groq/openai/gpt-oss-120b"
 _MAX_CONTEXT_CHARS = 1200
 
 
-def _build_context(chunks: "list[RetrievedChunk]") -> str:
+def _build_context(chunks: list[RetrievedChunk]) -> str:
     """Format retrieved chunks as numbered context blocks."""
     parts = []
     for i, c in enumerate(chunks, start=1):
@@ -43,7 +44,7 @@ def _build_context(chunks: "list[RetrievedChunk]") -> str:
 
 async def generate_stream(
     query: str,
-    chunks: "list[RetrievedChunk]",
+    chunks: list[RetrievedChunk],
     *,
     session_id: uuid.UUID,
     conn: asyncpg.Connection,
@@ -144,7 +145,7 @@ async def _persist_messages(
     session_id: uuid.UUID,
     user_content: str,
     assistant_content: str,
-    chunks: "list[RetrievedChunk]",
+    chunks: list[RetrievedChunk],
     latency_ms: int | None,
     cost_usd: float,
 ) -> None:

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import date, timedelta
+from datetime import date
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Request

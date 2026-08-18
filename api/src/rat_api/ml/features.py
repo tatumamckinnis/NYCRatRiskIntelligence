@@ -36,7 +36,8 @@ async def get_nta_features(
     if row is None:
         # Fall back to the most recent available week for this NTA.
         row = await conn.fetchrow(
-            "SELECT * FROM features.nta_week_panel WHERE nta_id = $1 ORDER BY week_start DESC LIMIT 1",
+            "SELECT * FROM features.nta_week_panel "
+            "WHERE nta_id = $1 ORDER BY week_start DESC LIMIT 1",
             nta_id,
         )
     if row is None:

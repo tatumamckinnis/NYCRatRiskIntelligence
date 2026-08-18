@@ -15,7 +15,6 @@ from httpx import ASGITransport, AsyncClient
 
 from rat_api.routes.narrative import router
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

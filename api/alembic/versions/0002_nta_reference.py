@@ -27,7 +27,7 @@ def upgrade() -> None:
             nta_id      TEXT PRIMARY KEY,               -- NTA 2020 code, e.g. 'BK2201'
             nta_name    TEXT NOT NULL,
             borough     TEXT NOT NULL,
-            geom        GEOMETRY(MultiPolygon, 4326),   -- WGS84; NY State Plane re-projected at ingest
+            geom        GEOMETRY(MultiPolygon, 4326),   -- WGS84; re-projected from NY State Plane
             area_sq_m   NUMERIC
         )
     """)

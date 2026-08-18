@@ -127,7 +127,9 @@ async def get_nta_risk(nta_id: str, request: Request) -> JSONResponse:
 @router.get("/map", response_model=list[MapRiskItem])
 async def get_risk_map(
     request: Request,
-    week: date = Query(default=None, description="ISO week start (Monday). Defaults to current week."),
+    week: date = Query(
+        default=None, description="ISO week start (Monday). Defaults to current week."
+    ),
 ) -> list[MapRiskItem]:
     """Return risk scores for all NTAs for a given week.
 

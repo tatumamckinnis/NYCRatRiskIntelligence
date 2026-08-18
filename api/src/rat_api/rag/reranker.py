@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 BGE_RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 
 # Module-level singleton
-_reranker: "BgeReranker | None" = None
+_reranker: BgeReranker | None = None
 
 
 @dataclass
@@ -52,10 +52,10 @@ class BgeReranker:
     def rerank(
         self,
         query: str,
-        chunks: "list[RetrievedChunk]",
+        chunks: list[RetrievedChunk],
         *,
         top_k: int = 6,
-    ) -> "list[RetrievedChunk]":
+    ) -> list[RetrievedChunk]:
         """Score (query, chunk) pairs and return the top *top_k* by score.
 
         Args:
@@ -90,6 +90,6 @@ def load_reranker(device: str | None = None) -> BgeReranker:
     return _reranker
 
 
-def get_reranker() -> "BgeReranker | None":
+def get_reranker() -> BgeReranker | None:
     """Return the singleton reranker (None if not yet loaded)."""
     return _reranker

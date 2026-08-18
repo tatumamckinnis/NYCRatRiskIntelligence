@@ -86,7 +86,7 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     op.execute("""
         CREATE TABLE raw.restaurant_inspections (
-            record_id           TEXT PRIMARY KEY,    -- camis||'_'||inspection_date||'_'||violation_code
+            record_id           TEXT PRIMARY KEY,    -- camis||'_'||insp_date||'_'||violation_code
             camis               TEXT NOT NULL,        -- unique restaurant identifier
             bbl                 TEXT,                -- 10-char zero-padded
             nta_id              TEXT,                -- populated by T-06 spatial join

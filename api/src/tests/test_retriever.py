@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from rat_api.rag.retriever import RetrievedChunk, _rrf_fuse
-
 
 # ---------------------------------------------------------------------------
 # RRF fusion (pure, no DB)
@@ -77,7 +76,9 @@ async def test_retrieve_returns_retrieved_chunks():
                 "authority": "DOHMH",
                 "section_path": ["151", "151.02"],
                 "content": "Active rat signs means evidence of live rats.",
-                "content_with_prefix": "From DOHMH §151.02: Active rat signs means evidence of live rats.",
+                "content_with_prefix": (
+                    "From DOHMH §151.02: Active rat signs means evidence of live rats."
+                ),
                 "parent_chunk_id": None,
                 "score": 0.92,
             }

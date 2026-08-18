@@ -20,13 +20,18 @@ async def test_chat_returns_event_stream_content_type():
     from rat_api.main import app
 
     with (
-        patch("rat_api.routes.chat._get_or_create_session", new_callable=AsyncMock, return_value=uuid.uuid4()),
+        patch(
+            "rat_api.routes.chat._get_or_create_session",
+            new_callable=AsyncMock,
+            return_value=uuid.uuid4(),
+        ),
         patch("rat_api.routes.chat.retrieve", new_callable=AsyncMock, return_value=[]),
         patch("rat_api.routes.chat.generate_stream", side_effect=_fake_generate_stream),
         patch("asyncpg.connect", new_callable=AsyncMock),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            async with client.stream("POST", "/chat", json={"question": "What is §151.02?"}) as resp:
+            question = {"question": "What is §151.02?"}
+            async with client.stream("POST", "/chat", json=question) as resp:
                 assert resp.status_code == 200
                 assert "text/event-stream" in resp.headers["content-type"]
 
@@ -38,7 +43,11 @@ async def test_chat_returns_done_frame():
     chunks_received = []
 
     with (
-        patch("rat_api.routes.chat._get_or_create_session", new_callable=AsyncMock, return_value=uuid.uuid4()),
+        patch(
+            "rat_api.routes.chat._get_or_create_session",
+            new_callable=AsyncMock,
+            return_value=uuid.uuid4(),
+        ),
         patch("rat_api.routes.chat.retrieve", new_callable=AsyncMock, return_value=[]),
         patch("rat_api.routes.chat.generate_stream", side_effect=_fake_generate_stream),
         patch("asyncpg.connect", new_callable=AsyncMock),
@@ -69,7 +78,11 @@ async def test_chat_emits_citations_event_before_tokens():
     )
 
     with (
-        patch("rat_api.routes.chat._get_or_create_session", new_callable=AsyncMock, return_value=uuid.uuid4()),
+        patch(
+            "rat_api.routes.chat._get_or_create_session",
+            new_callable=AsyncMock,
+            return_value=uuid.uuid4(),
+        ),
         patch("rat_api.routes.chat.retrieve", new_callable=AsyncMock, return_value=[fake_chunk]),
         patch("rat_api.routes.chat.generate_stream", side_effect=_fake_generate_stream),
         patch("asyncpg.connect", new_callable=AsyncMock),
@@ -102,7 +115,11 @@ async def test_chat_sets_session_id_header():
     fixed_session = uuid.uuid4()
 
     with (
-        patch("rat_api.routes.chat._get_or_create_session", new_callable=AsyncMock, return_value=fixed_session),
+        patch(
+            "rat_api.routes.chat._get_or_create_session",
+            new_callable=AsyncMock,
+            return_value=fixed_session,
+        ),
         patch("rat_api.routes.chat.retrieve", new_callable=AsyncMock, return_value=[]),
         patch("rat_api.routes.chat.generate_stream", side_effect=_fake_generate_stream),
         patch("asyncpg.connect", new_callable=AsyncMock),
