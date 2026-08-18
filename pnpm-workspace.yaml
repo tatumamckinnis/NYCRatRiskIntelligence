@@ -1,8 +1,11 @@
 packages:
   - "web"
 
-ignoredBuiltDependencies:
-  - "@sentry/cli"
-  - "@vaadin/vaadin-usage-statistics"
-  - sharp
-  - unrs-resolver
+# pnpm v11 replaced ignoredBuiltDependencies with allowBuilds (strictDepBuilds
+# defaults to true). false preserves the original intent: these 4 packages'
+# postinstall/build scripts don't run.
+allowBuilds:
+  "@sentry/cli": false
+  "@vaadin/vaadin-usage-statistics": false
+  sharp: false
+  unrs-resolver: false

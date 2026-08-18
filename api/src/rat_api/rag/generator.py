@@ -78,6 +78,11 @@ async def generate_stream(
             stream = await litellm.acompletion(
                 model=_MODEL,
                 max_tokens=1024,
+                # gpt-oss spends tokens on hidden reasoning before the
+                # visible answer; "low" keeps that budget small so 1024
+                # reliably covers a full cited answer instead of being an
+                # unpredictable race against the reasoning trace.
+                reasoning_effort="low",
                 api_key=settings.groq_api_key,
                 stream=True,
                 messages=[

@@ -62,7 +62,12 @@ async def judge_faithfulness(
 
         msg = client.chat.completions.create(
             model=_JUDGE_MODEL,
-            max_tokens=10,
+            # gpt-oss is a reasoning model — 10 tokens was entirely consumed
+            # by its hidden reasoning trace before it ever reached "FAITHFUL:
+            # YES/NO", returning empty content every time. 60 with low effort
+            # reliably fits both; verified empirically against the live API.
+            max_tokens=60,
+            reasoning_effort="low",
             messages=[
                 {"role": "system", "content": _JUDGE_SYSTEM},
                 {"role": "user", "content": user_content},

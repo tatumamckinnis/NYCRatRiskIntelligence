@@ -64,6 +64,11 @@ def _rewrite_query(query: str, *, api_key: str) -> str:
         resp = litellm.completion(
             model="groq/openai/gpt-oss-20b",
             max_tokens=200,
+            # gpt-oss is a reasoning model that spends tokens on a hidden
+            # `reasoning` field before the visible answer — without capping
+            # effort, short max_tokens budgets get eaten entirely by that
+            # hidden reasoning and the call returns empty content.
+            reasoning_effort="low",
             api_key=api_key,
             messages=[
                 {
@@ -135,14 +140,25 @@ async def _bm25_retrieve(
     *,
     top_k: int,
 ) -> list[RetrievedChunk]:
-    """Full-text search using the ``content_tsv`` GIN index."""
+    """Full-text search using the ``content_tsv`` GIN index.
+
+    ``plainto_tsquery`` ANDs every lexeme together, which sounds right but
+    means a natural-language question (with 8-15+ significant words after
+    stemming) essentially never matches any single chunk — verified
+    empirically: even a short real question like "What does active rat
+    signs mean under the NYC Health Code?" returned zero rows. Reusing
+    plainto_tsquery's stemming/stopword handling but rewriting its AND (`&`)
+    operators to OR (`|`) turns this into a proper ranked search — chunks
+    matching more query terms rank higher via ts_rank_cd, but a chunk
+    doesn't need *every* term to be a candidate at all.
+    """
     sql = """
         SELECT
             chunk_id, document, citation, authority, section_path,
             content, content_with_prefix, parent_chunk_id,
-            ts_rank_cd(content_tsv, plainto_tsquery('english', $1)) AS score
+            ts_rank_cd(content_tsv, to_tsquery('english', replace(plainto_tsquery('english', $1)::text, ' & ', ' | '))) AS score
         FROM app.health_code_chunks
-        WHERE content_tsv @@ plainto_tsquery('english', $1)
+        WHERE content_tsv @@ to_tsquery('english', replace(plainto_tsquery('english', $1)::text, ' & ', ' | '))
         ORDER BY score DESC
         LIMIT $2
     """
