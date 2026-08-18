@@ -226,6 +226,14 @@ async def run_eval_suite(
             elif trace_jsonl:
                 retrieved_per_item[idx] = _load_trace_chunks(trace_jsonl, item["question"])
 
+            # Groq free tier caps at 8000 tokens/minute. Each /chat call
+            # itself makes 2 Groq calls (query rewrite + generation); firing
+            # 50 of these back-to-back reliably exhausted the budget in
+            # testing (42/50 items hit RateLimitError in one run). A fixed
+            # pace, on top of litellm's own retry/backoff in generator.py,
+            # keeps a full run comfortably under the ceiling.
+            await asyncio.sleep(2.0)
+
     await asyncio.gather(*(_eval_one(i, it) for i, it in enumerate(items)))
 
     # ------------------------------------------------------------------
@@ -258,6 +266,8 @@ async def run_eval_suite(
             api_key=api_key,
         )
         faithful_scores.append(score)
+        # Same Groq TPM pacing rationale as the /chat loop above.
+        await asyncio.sleep(1.5)
 
     # Summarise
     valid_faithful = [s for s in faithful_scores if s >= 0]

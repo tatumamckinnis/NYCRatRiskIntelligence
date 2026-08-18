@@ -48,7 +48,11 @@ async def judge_faithfulness(
     try:
         from openai import OpenAI  # noqa: PLC0415
 
-        client = OpenAI(api_key=key, base_url=_GROQ_BASE_URL)
+        # openai's SDK already retries transient errors (incl. 429) by
+        # default, but pin it explicitly — Groq free tier's 8000 TPM limit
+        # made this a real, observed failure mode (see judge_faithfulness
+        # docstring / rat_evals pacing).
+        client = OpenAI(api_key=key, base_url=_GROQ_BASE_URL, max_retries=3)
 
         context = "\n\n".join(
             f"[{i + 1}] {c.get('citation', '')}: {c.get('content', '')[:600]}"

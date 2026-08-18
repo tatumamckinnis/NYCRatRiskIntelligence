@@ -69,6 +69,7 @@ def _rewrite_query(query: str, *, api_key: str) -> str:
             # effort, short max_tokens budgets get eaten entirely by that
             # hidden reasoning and the call returns empty content.
             reasoning_effort="low",
+            num_retries=1,
             api_key=api_key,
             messages=[
                 {
@@ -225,7 +226,11 @@ async def _expand_parents(
     chunks: list[RetrievedChunk],
     conn: asyncpg.Connection,
     *,
-    token_budget: int = 4000,
+    # Groq free tier's 8000 TPM limit — verified empirically that the old
+    # 4000-token budget here, stacked with generator.py's own context
+    # budget, could exhaust it within a few calls. 1200 keeps a typical
+    # /chat call comfortably under budget.
+    token_budget: int = 1200,
 ) -> list[RetrievedChunk]:
     """Prepend parent chunk text to children when within token budget."""
     parent_ids = [c.parent_chunk_id for c in chunks if c.parent_chunk_id]
@@ -268,7 +273,11 @@ async def retrieve(
     top_k_dense: int = 30,
     top_k_bm25: int = 30,
     top_k_after_rrf: int = 40,
-    top_k_final: int = 6,
+    # The eval suite's recall_at_k already slices to its own top-k (5), so
+    # returning a 6th chunk here doesn't help that metric — it only adds
+    # generation-context tokens, which is the thing squeezing the Groq
+    # free-tier TPM budget.
+    top_k_final: int = 5,
     expand_parents: bool = True,
 ) -> list[RetrievedChunk]:
     """Full hybrid retrieval pipeline.

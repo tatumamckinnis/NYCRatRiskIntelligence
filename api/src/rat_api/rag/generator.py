@@ -25,7 +25,11 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _MODEL = "groq/openai/gpt-oss-120b"
-_MAX_CONTEXT_CHARS = 4000  # per-chunk truncation for context window safety
+# Groq free tier is capped at 8000 tokens/minute (TPM) — verified empirically
+# that a handful of calls at the old 4000-char/chunk budget could exhaust it
+# within a minute. 1200 chars (~300 tokens) x up to 6 chunks keeps a typical
+# call well under budget while still giving the model real grounding text.
+_MAX_CONTEXT_CHARS = 1200
 
 
 def _build_context(chunks: "list[RetrievedChunk]") -> str:
@@ -77,12 +81,17 @@ async def generate_stream(
         try:
             stream = await litellm.acompletion(
                 model=_MODEL,
-                max_tokens=1024,
+                max_tokens=768,
                 # gpt-oss spends tokens on hidden reasoning before the
-                # visible answer; "low" keeps that budget small so 1024
+                # visible answer; "low" keeps that budget small so this
                 # reliably covers a full cited answer instead of being an
                 # unpredictable race against the reasoning trace.
                 reasoning_effort="low",
+                # Groq free tier's 8000 TPM limit means a burst of traffic
+                # can trip 429s even at right-sized context; retry with
+                # litellm's built-in backoff rather than failing the
+                # request outright.
+                num_retries=2,
                 api_key=settings.groq_api_key,
                 stream=True,
                 messages=[
