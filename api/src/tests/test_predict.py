@@ -27,13 +27,13 @@ class _FakeModel:
     def __init__(self, proba: float) -> None:
         self._proba = proba
 
-    def predict_proba(self, X):  # noqa: ANN001, N803
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:  # noqa: N803
         n = len(X)
         return np.array([[1 - self._proba, self._proba]] * n)
 
 
-def _feature_row(overrides: dict | None = None) -> dict:
-    base = {col: 1.0 for col in FEATURE_COLS}
+def _feature_row(overrides: dict[str, object] | None = None) -> dict[str, object]:
+    base: dict[str, object] = {col: 1.0 for col in FEATURE_COLS}
     if overrides:
         base.update(overrides)
     return base
@@ -44,25 +44,25 @@ def _feature_row(overrides: dict | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_predict_risk_score_range():
+def test_predict_risk_score_range() -> None:
     model = _FakeModel(0.72)
     result = predict_risk(model, _feature_row(), FEATURE_COLS, EVEN_THRESHOLDS, "v1")
     assert 0.0 <= result.risk_score <= 1.0
 
 
-def test_predict_risk_score_value():
+def test_predict_risk_score_value() -> None:
     model = _FakeModel(0.72)
     result = predict_risk(model, _feature_row(), FEATURE_COLS, EVEN_THRESHOLDS, "v1")
     assert result.risk_score == pytest.approx(0.72, abs=1e-5)
 
 
-def test_predict_risk_version_passed_through():
+def test_predict_risk_version_passed_through() -> None:
     model = _FakeModel(0.5)
     result = predict_risk(model, _feature_row(), FEATURE_COLS, EVEN_THRESHOLDS, "my-version")
     assert result.model_version == "my-version"
 
 
-def test_predict_risk_missing_features_filled_with_zero():
+def test_predict_risk_missing_features_filled_with_zero() -> None:
     """Feature not in feature_row should be filled with 0, not raise."""
     model = _FakeModel(0.3)
     result = predict_risk(model, {}, FEATURE_COLS, EVEN_THRESHOLDS, "v1")
@@ -81,19 +81,19 @@ def test_predict_risk_missing_features_filled_with_zero():
         (1.0, 10),  # >= all 10 thresholds → decile=10
     ],
 )
-def test_predict_risk_decile_assignment(score: float, expected_decile: int):
+def test_predict_risk_decile_assignment(score: float, expected_decile: int) -> None:
     model = _FakeModel(score)
     result = predict_risk(model, _feature_row(), FEATURE_COLS, EVEN_THRESHOLDS, "v1")
     assert result.risk_decile == expected_decile
 
 
-def test_predict_risk_decile_never_exceeds_10():
+def test_predict_risk_decile_never_exceeds_10() -> None:
     model = _FakeModel(1.0)
     result = predict_risk(model, _feature_row(), FEATURE_COLS, EVEN_THRESHOLDS, "v1")
     assert result.risk_decile <= 10
 
 
-def test_predict_risk_top_factors_list():
+def test_predict_risk_top_factors_list() -> None:
     """SHAP will fail on a fake model — top_factors should be empty, not raise."""
     model = _FakeModel(0.4)
     result = predict_risk(model, _feature_row(), FEATURE_COLS, EVEN_THRESHOLDS, "v1")

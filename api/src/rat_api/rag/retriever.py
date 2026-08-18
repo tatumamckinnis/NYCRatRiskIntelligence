@@ -86,9 +86,9 @@ def _rewrite_query(query: str, *, api_key: str) -> str:
                 {"role": "user", "content": query},
             ],
         )
-        rewritten = resp.choices[0].message.content.strip()
+        rewritten: str = str(resp.choices[0].message.content or "").strip()
         log.debug("Query rewrite: %r → %r", query, rewritten)
-        return rewritten
+        return rewritten or query
     except Exception as exc:  # noqa: BLE001
         log.warning("Query rewrite failed (%s); using original query.", exc)
         return query

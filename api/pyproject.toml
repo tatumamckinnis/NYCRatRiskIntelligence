@@ -70,6 +70,17 @@ ignore = []
 [tool.mypy]
 python_version = "3.12"
 strict = true
+# Keep in sync with the root pyproject.toml's [tool.mypy] section — mypy
+# resolves the nearest config relative to cwd, so `cd api && mypy src/`
+# reads this file instead of root's (same reason pnpm-workspace.yaml is
+# duplicated at repo root and in web/).
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+  "asyncpg", "asyncpg.*", "rat_ml.*", "joblib", "shap", "pandas", "pandas.*", "voyageai",
+]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

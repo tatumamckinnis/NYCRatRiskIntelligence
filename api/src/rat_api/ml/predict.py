@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 import pandas as pd
 
 from rat_api.models.risk import RiskFactor
+
+
+class _FittedModel(Protocol):
+    """Minimal interface shared by CatBoost/LightGBM/sklearn-style estimators."""
+
+    def predict_proba(self, X: pd.DataFrame) -> np.ndarray: ...
+
 
 # Human-readable labels for feature columns shown in the API response.
 FEATURE_LABELS: dict[str, str] = {
@@ -46,7 +54,7 @@ class PredictionResult:
 
 
 def _compute_shap_factors(
-    model: object,
+    model: _FittedModel,
     X: pd.DataFrame,
     feature_cols: list[str],
     n: int = 5,
@@ -83,8 +91,8 @@ def _compute_shap_factors(
 
 
 def predict_risk(
-    model: object,
-    feature_row: dict,
+    model: _FittedModel,
+    feature_row: dict[str, object],
     feature_cols: list[str],
     decile_thresholds: list[float],
     model_version: str,
@@ -106,7 +114,7 @@ def predict_risk(
     # Fill missing values with 0 so the model can always run
     X = X.fillna(0)
 
-    probs = model.predict_proba(X)  # type: ignore[union-attr]
+    probs = model.predict_proba(X)
     risk_score = float(probs[0, 1])
 
     # Decile: find which bucket the score falls into

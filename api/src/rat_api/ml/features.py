@@ -16,7 +16,7 @@ async def get_nta_features(
     nta_id: str,
     week: date,
     conn: asyncpg.Connection,
-) -> dict | None:
+) -> dict[str, object] | None:
     """Fetch one NTA-week feature row from features.nta_week_panel.
 
     Args:
@@ -48,7 +48,7 @@ async def get_nta_features(
 async def get_all_nta_features_for_week(
     week: date,
     conn: asyncpg.Connection,
-) -> list[dict]:
+) -> list[dict[str, object]]:
     """Fetch all NTA feature rows for a single week (used by /risk/map)."""
     rows = await conn.fetch(
         "SELECT * FROM features.nta_week_panel WHERE week_start = $1",

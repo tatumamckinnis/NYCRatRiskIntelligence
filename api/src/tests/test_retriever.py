@@ -26,7 +26,7 @@ def _make_chunk(chunk_id: str, score: float = 0.9, method: str = "dense") -> Ret
     )
 
 
-def test_rrf_fuse_deduplicates():
+def test_rrf_fuse_deduplicates() -> None:
     dense = [_make_chunk("A"), _make_chunk("B"), _make_chunk("C")]
     bm25 = [_make_chunk("B"), _make_chunk("C"), _make_chunk("D")]
     result = _rrf_fuse([dense, bm25], top_k=10)
@@ -34,7 +34,7 @@ def test_rrf_fuse_deduplicates():
     assert len(ids) == len(set(ids)), "Duplicate chunk IDs after RRF"
 
 
-def test_rrf_fuse_boosts_overlap():
+def test_rrf_fuse_boosts_overlap() -> None:
     """Chunks appearing in both lists should rank higher than single-list chunks."""
     dense = [_make_chunk("SHARED"), _make_chunk("DENSE_ONLY")]
     bm25 = [_make_chunk("SHARED"), _make_chunk("BM25_ONLY")]
@@ -44,14 +44,14 @@ def test_rrf_fuse_boosts_overlap():
     assert shared_pos == 0, f"SHARED should be #1, got position {shared_pos}"
 
 
-def test_rrf_fuse_respects_top_k():
+def test_rrf_fuse_respects_top_k() -> None:
     dense = [_make_chunk(f"D{i}") for i in range(20)]
     bm25 = [_make_chunk(f"B{i}") for i in range(20)]
     result = _rrf_fuse([dense, bm25], top_k=5)
     assert len(result) <= 5
 
 
-def test_rrf_fuse_sets_retrieval_method():
+def test_rrf_fuse_sets_retrieval_method() -> None:
     dense = [_make_chunk("A")]
     result = _rrf_fuse([dense], top_k=5)
     assert all(c.retrieval_method == "rrf" for c in result)
@@ -62,7 +62,7 @@ def test_rrf_fuse_sets_retrieval_method():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_retrieve_returns_retrieved_chunks():
+async def test_retrieve_returns_retrieved_chunks() -> None:
     """retrieve() should return a list of RetrievedChunk with correct input_type."""
     mock_conn = AsyncMock()
     # Dense rows
@@ -103,11 +103,11 @@ async def test_retrieve_returns_retrieved_chunks():
 
 
 @pytest.mark.asyncio
-async def test_embed_query_uses_query_input_type():
+async def test_embed_query_uses_query_input_type() -> None:
     """embed_query (BGE-M3) must be called exactly once per retrieve() call."""
-    calls = []
+    calls: list[dict[str, str]] = []
 
-    def fake_embed_query(query):
+    def fake_embed_query(query: str) -> list[float]:
         calls.append({"query": query})
         return [0.0] * 1024
 

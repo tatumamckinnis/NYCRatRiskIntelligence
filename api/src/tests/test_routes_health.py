@@ -32,10 +32,10 @@ def _make_app(*, model_loaded: bool) -> FastAPI:
 
 
 @pytest.mark.asyncio
-async def test_health_ok_when_db_and_model_ready():
+async def test_health_ok_when_db_and_model_ready() -> None:
     app = _make_app(model_loaded=True)
 
-    async def _fake_connect(*args, **kwargs):
+    async def _fake_connect(*args: object, **kwargs: object) -> AsyncMock:
         conn = AsyncMock()
         conn.fetchval = AsyncMock(return_value=1)
         conn.close = AsyncMock()
@@ -58,10 +58,10 @@ async def test_health_ok_when_db_and_model_ready():
 
 
 @pytest.mark.asyncio
-async def test_health_degraded_when_model_not_loaded():
+async def test_health_degraded_when_model_not_loaded() -> None:
     app = _make_app(model_loaded=False)
 
-    async def _fake_connect(*args, **kwargs):
+    async def _fake_connect(*args: object, **kwargs: object) -> AsyncMock:
         conn = AsyncMock()
         conn.fetchval = AsyncMock(return_value=1)
         conn.close = AsyncMock()
@@ -82,7 +82,7 @@ async def test_health_degraded_when_model_not_loaded():
 
 
 @pytest.mark.asyncio
-async def test_health_degraded_when_db_unreachable():
+async def test_health_degraded_when_db_unreachable() -> None:
     app = _make_app(model_loaded=True)
 
     with patch(

@@ -114,11 +114,11 @@ def _embed_query(query: str, *, api_key: str) -> list[float]:
         log.warning("voyageai_api_key not set — returning zero vector for query embed")
         return [0.0] * 1024
 
-    import voyageai  # noqa: PLC0415
+    from voyageai.client import Client  # noqa: PLC0415
 
-    client = voyageai.Client(api_key=api_key)
+    client = Client(api_key=api_key)
     result = client.embed([query], model="voyage-3", input_type="query")
-    return result.embeddings[0]
+    return [float(v) for v in result.embeddings[0]]
 
 
 def _cohere_rerank(

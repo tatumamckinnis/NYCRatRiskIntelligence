@@ -29,11 +29,11 @@ FAKE_WEEK = date(2024, 5, 6)
 
 
 class _FakeModel:
-    def predict_proba(self, X):  # noqa: ANN001, N803
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:  # noqa: N803
         return np.array([[0.3, 0.7]] * len(X))
 
 
-def _make_bundle() -> dict:
+def _make_bundle() -> dict[str, object]:
     return {
         "model": _FakeModel(),
         "metadata": {"feature_cols": FEATURE_COLS},
@@ -50,14 +50,15 @@ def _make_app(*, model_loaded: bool = True) -> FastAPI:
     return app
 
 
-def _feature_row() -> dict:
+def _feature_row() -> dict[str, object]:
     return {col: 1.0 for col in FEATURE_COLS} | {"nta_id": "MN2501"}
 
 
-def _fake_settings(**kwargs):
+def _fake_settings(**kwargs: str) -> MagicMock:
     defaults = dict(
         database_url="postgresql://fake/db",
         anthropic_api_key="sk-test",
+        groq_api_key="test-groq-key",
         voyageai_api_key="",
         cohere_api_key="",
     )
@@ -71,7 +72,7 @@ def _fake_settings(**kwargs):
 
 
 @pytest.mark.asyncio
-async def test_narrative_returns_200():
+async def test_narrative_returns_200() -> None:
     app = _make_app()
 
     conn = AsyncMock()
@@ -90,7 +91,7 @@ async def test_narrative_returns_200():
                     new=AsyncMock(return_value=[]),
                 ):
                     with patch(
-                        "rat_api.routes.narrative._call_claude",
+                        "rat_api.routes.narrative._call_groq",
                         return_value="Rodent risk is elevated this week.",
                     ):
                         with patch(
@@ -116,7 +117,7 @@ async def test_narrative_returns_200():
 
 
 @pytest.mark.asyncio
-async def test_narrative_503_when_model_not_loaded():
+async def test_narrative_503_when_model_not_loaded() -> None:
     app = _make_app(model_loaded=False)
 
     with patch("rat_api.routes.narrative.get_settings", return_value=_fake_settings()):
@@ -129,12 +130,12 @@ async def test_narrative_503_when_model_not_loaded():
 
 
 @pytest.mark.asyncio
-async def test_narrative_503_when_no_anthropic_key():
+async def test_narrative_503_when_no_groq_key() -> None:
     app = _make_app()
 
     with patch(
         "rat_api.routes.narrative.get_settings",
-        return_value=_fake_settings(anthropic_api_key=""),
+        return_value=_fake_settings(groq_api_key=""),
     ):
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://test"
@@ -145,7 +146,7 @@ async def test_narrative_503_when_no_anthropic_key():
 
 
 @pytest.mark.asyncio
-async def test_narrative_503_when_feature_row_missing():
+async def test_narrative_503_when_feature_row_missing() -> None:
     app = _make_app()
 
     conn = AsyncMock()

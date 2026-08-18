@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from rat_api.config import get_settings
 from rat_api.ml.features import current_iso_week, get_nta_features
 from rat_api.ml.predict import FEATURE_LABELS, predict_risk
-from rat_api.rag.retrieve import retrieve
+from rat_api.rag.retrieve import RetrievedChunk, retrieve
 
 log = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ def _cache_key(nta_id: str, week: date, model_version: str) -> str:
     ).hexdigest()
 
 
-def _build_rag_query(nta_id: str, result: object) -> str:  # type: ignore[type-arg]
+def _build_rag_query(nta_id: str, result: object) -> str:
     factors = getattr(result, "top_factors", [])[:_MAX_FACTORS]
     factor_names = ", ".join(
         FEATURE_LABELS.get(f.feature, f.feature) for f in factors
@@ -191,8 +191,8 @@ def _build_user_prompt(
     nta_id: str,
     week: date,
     result: object,  # PredictionResult
-    tft_rows: list,
-    rag_chunks: list,
+    tft_rows: list[asyncpg.Record],
+    rag_chunks: list[RetrievedChunk],
 ) -> str:
     risk_score = getattr(result, "risk_score", 0.0)
     risk_decile = getattr(result, "risk_decile", 1)
@@ -234,19 +234,28 @@ def _build_user_prompt(
 
 
 def _call_groq(user_content: str, *, api_key: str) -> str:
-    """Synchronous Groq call via litellm — kept thin, no streaming."""
+    """Synchronous Groq call via litellm — kept thin, no streaming.
+
+    Model was groq/llama-3.1-8b-instant — deprecated by Groq (see
+    docs/decisions/0006-groq-llm.md addendum and generator.py/retriever.py,
+    which hit the same issue for /chat). reasoning_effort="low" avoids
+    gpt-oss's hidden-reasoning tokens silently eating the output budget.
+    """
     import litellm  # noqa: PLC0415
 
     response = litellm.completion(
-        model="groq/llama-3.1-8b-instant",
+        model="groq/openai/gpt-oss-20b",
         api_key=api_key,
-        max_tokens=256,
+        max_tokens=400,
+        reasoning_effort="low",
+        num_retries=2,
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
         ],
     )
-    return response.choices[0].message.content.strip()
+    content: str = str(response.choices[0].message.content or "").strip()
+    return content
 
 
 async def _write_cache(cache_key: str, narrative: str, *, db_url: str) -> None:

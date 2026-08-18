@@ -23,13 +23,13 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
     SpanExporter,
@@ -57,10 +57,10 @@ class JsonlSpanExporter(SpanExporter):
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
-    def export(self, spans: object) -> SpanExportResult:  # type: ignore[override]
+    def export(self, spans: Sequence[ReadableSpan]) -> SpanExportResult:
         try:
             with self._path.open("a", encoding="utf-8") as fh:
-                for span in spans:  # type: ignore[union-attr]
+                for span in spans:
                     attrs = dict(span.attributes or {})
                     obj = {
                         "trace_id": format(span.context.trace_id, "032x"),

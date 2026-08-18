@@ -70,7 +70,7 @@ class BgeReranker:
         if not chunks:
             return []
         pairs = [(query, c.content) for c in chunks]
-        scores = self._model.predict(pairs)  # type: ignore[arg-type]
+        scores = self._model.predict(pairs)
         ranked = sorted(
             zip(scores, chunks),
             key=lambda x: float(x[0]),

@@ -4,12 +4,13 @@ Sets the minimum required environment variables so Settings() validates
 without a real .env file present, enabling tests to run from any directory.
 """
 import os
+from collections.abc import Generator
 
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def _set_test_env(monkeypatch):
+def _set_test_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     """Inject stub env vars so Settings() instantiates without errors."""
     defaults = {
         "DATABASE_URL": "postgresql://test:test@localhost/test",

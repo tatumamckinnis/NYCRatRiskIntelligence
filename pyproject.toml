@@ -20,3 +20,17 @@ ignore = []
 [tool.mypy]
 python_version = "3.12"
 strict = true
+# Teaches mypy that pydantic-settings fields are populated by validation
+# (env vars / .env), not literal constructor args — without this, every
+# BaseSettings subclass with required fields falsely reports missing
+# arguments at its no-arg Settings() call site.
+plugins = ["pydantic.mypy"]
+
+# Third-party/cross-package boundaries with no py.typed marker — not code
+# this workspace owns, so ignore-missing-imports here rather than loosening
+# strict mode or scattering # type: ignore across every call site.
+[[tool.mypy.overrides]]
+module = [
+  "asyncpg", "asyncpg.*", "rat_ml.*", "joblib", "shap", "pandas", "pandas.*", "voyageai",
+]
+ignore_missing_imports = true

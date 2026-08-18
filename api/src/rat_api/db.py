@@ -1,15 +1,20 @@
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from rat_api.config import get_settings
 
 # Module-level singletons — created once on first use.
-_engine = None
+_engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def _get_engine():
+def _get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         url = get_settings().database_url

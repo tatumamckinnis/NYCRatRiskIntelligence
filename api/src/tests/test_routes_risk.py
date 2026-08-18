@@ -34,11 +34,11 @@ FAKE_WEEK = date(2024, 5, 6)  # Monday
 
 
 class _FakeModel:
-    def predict_proba(self, X):  # noqa: ANN001, N803
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:  # noqa: N803
         return np.array([[0.3, 0.7]] * len(X))
 
 
-def _make_bundle() -> dict:
+def _make_bundle() -> dict[str, object]:
     return {
         "model": _FakeModel(),
         "metadata": {"feature_cols": FEATURE_COLS},
@@ -55,7 +55,7 @@ def _make_app() -> FastAPI:
     return app
 
 
-def _feature_row(nta_id: str = "MN2501") -> dict:
+def _feature_row(nta_id: str = "MN2501") -> dict[str, object]:
     return {col: 1.0 for col in FEATURE_COLS} | {"nta_id": nta_id}
 
 
@@ -65,10 +65,10 @@ def _feature_row(nta_id: str = "MN2501") -> dict:
 
 
 @pytest.mark.asyncio
-async def test_risk_nta_returns_200():
+async def test_risk_nta_returns_200() -> None:
     app = _make_app()
 
-    async def _fake_connect(*args, **kwargs):
+    async def _fake_connect(*args: object, **kwargs: object) -> AsyncMock:
         conn = AsyncMock()
         conn.fetchrow = AsyncMock(return_value=_feature_row())
         conn.close = AsyncMock()
@@ -97,7 +97,7 @@ async def test_risk_nta_returns_200():
 
 
 @pytest.mark.asyncio
-async def test_risk_nta_503_when_feature_row_missing():
+async def test_risk_nta_503_when_feature_row_missing() -> None:
     app = _make_app()
 
     with patch("rat_api.routes.risk.asyncpg.connect"):
@@ -117,7 +117,7 @@ async def test_risk_nta_503_when_feature_row_missing():
 
 
 @pytest.mark.asyncio
-async def test_risk_nta_503_when_model_not_loaded():
+async def test_risk_nta_503_when_model_not_loaded() -> None:
     app = _make_app()
     app.state.model_bundle = None
 
@@ -137,14 +137,17 @@ async def test_risk_nta_503_when_model_not_loaded():
 
 
 @pytest.mark.asyncio
-async def test_risk_map_returns_list():
+async def test_risk_map_returns_list() -> None:
     app = _make_app()
     rows = [_feature_row(f"BK{i:04d}") for i in range(5)]
 
-    async def _fake_connect(*args, **kwargs):
+    async def _fake_connect(*args: object, **kwargs: object) -> AsyncMock:
         conn = AsyncMock()
-        # cached table is empty → triggers live inference path
-        conn.fetch = AsyncMock(side_effect=[[], rows])
+        # Route fetches boundary rows first, then the cache lookup — both
+        # empty here so it falls through to the live-inference path (which
+        # gets `rows` via the directly-patched get_all_nta_features_for_week
+        # below, not through conn.fetch).
+        conn.fetch = AsyncMock(side_effect=[[], []])
         conn.close = AsyncMock()
         return conn
 
@@ -171,7 +174,7 @@ async def test_risk_map_returns_list():
 
 
 @pytest.mark.asyncio
-async def test_risk_map_empty_when_no_features():
+async def test_risk_map_empty_when_no_features() -> None:
     app = _make_app()
 
     with patch("rat_api.routes.risk.asyncpg.connect"):
@@ -192,7 +195,7 @@ async def test_risk_map_empty_when_no_features():
 
 
 @pytest.mark.asyncio
-async def test_risk_map_503_when_model_not_loaded():
+async def test_risk_map_503_when_model_not_loaded() -> None:
     app = _make_app()
     app.state.model_bundle = None
 

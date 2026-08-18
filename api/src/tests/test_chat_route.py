@@ -4,19 +4,23 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 
-async def _fake_generate_stream(query, chunks, *, session_id, conn):
+async def _fake_generate_stream(
+    query: str, chunks: list[Any], *, session_id: uuid.UUID, conn: Any
+) -> AsyncIterator[str]:
     yield "Hello "
     yield "world."
 
 
 @pytest.mark.asyncio
-async def test_chat_returns_event_stream_content_type():
+async def test_chat_returns_event_stream_content_type() -> None:
     from rat_api.main import app
 
     with (
@@ -37,7 +41,7 @@ async def test_chat_returns_event_stream_content_type():
 
 
 @pytest.mark.asyncio
-async def test_chat_returns_done_frame():
+async def test_chat_returns_done_frame() -> None:
     from rat_api.main import app
 
     chunks_received = []
@@ -62,7 +66,7 @@ async def test_chat_returns_done_frame():
 
 
 @pytest.mark.asyncio
-async def test_chat_emits_citations_event_before_tokens():
+async def test_chat_emits_citations_event_before_tokens() -> None:
     from rat_api.main import app
     from rat_api.rag.retriever import RetrievedChunk
 
@@ -109,7 +113,7 @@ async def test_chat_emits_citations_event_before_tokens():
 
 
 @pytest.mark.asyncio
-async def test_chat_sets_session_id_header():
+async def test_chat_sets_session_id_header() -> None:
     from rat_api.main import app
 
     fixed_session = uuid.uuid4()
