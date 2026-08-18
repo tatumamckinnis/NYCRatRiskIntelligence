@@ -425,3 +425,24 @@ class LRTrainer(BaseTabularTrainer):
             ("scaler", StandardScaler()),
             ("lr", LogisticRegression(C=self.C, max_iter=1000, solver="lbfgs", random_state=42)),
         ])
+
+
+# ---------------------------------------------------------------------------
+# TabPFN v2 (per-borough, small-data specialist)
+# ---------------------------------------------------------------------------
+
+class TabPFNTrainer(BaseTabularTrainer):
+    """TabPFN v2 trainer for per-borough subsets with at most MAX_ROWS training rows."""
+
+    model_name = "tabpfn"
+    MAX_ROWS: int = 10_000
+
+    def _make_estimator(self) -> Any:
+        from sklearn.impute import SimpleImputer  # noqa: PLC0415
+        from sklearn.pipeline import Pipeline  # noqa: PLC0415
+        from tabpfn import TabPFNClassifier  # noqa: PLC0415
+
+        return Pipeline([
+            ("imputer", SimpleImputer(strategy="median")),
+            ("tabpfn", TabPFNClassifier(device="cpu", ignore_pretraining_limits=True)),
+        ])

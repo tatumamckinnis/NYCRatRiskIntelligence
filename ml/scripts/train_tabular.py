@@ -13,6 +13,7 @@ Optional env vars:
     MODEL_ARTIFACTS_DIR  override artifact output directory (default: ml/artifacts)
     SKIP_LGB             set to "1" to skip LightGBM (faster iteration)
     SKIP_LR              set to "1" to skip Logistic Regression
+    SKIP_TABPFN          set to "1" to skip TabPFN (per-borough, faster iteration)
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ import sys
 import textwrap
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 try:
@@ -40,7 +42,14 @@ from rat_ml.features.feature_matrix import (
     train_test_split,
 )
 from rat_ml.models.registry import ModelRegistry
-from rat_ml.models.tabular import CatBoostTrainer, LightGBMTrainer, LRTrainer, TrainResult
+from rat_ml.models.tabular import (
+    CatBoostTrainer,
+    LightGBMTrainer,
+    LRTrainer,
+    TabPFNTrainer,
+    TrainResult,
+    _encode_categoricals,
+)
 
 
 ARTIFACTS_DIR = Path(os.environ.get("MODEL_ARTIFACTS_DIR", "ml/artifacts"))
@@ -127,7 +136,7 @@ async def main() -> None:
     # ------------------------------------------------------------------
     # CatBoost (primary)
     # ------------------------------------------------------------------
-    print("\n[1/3] Training CatBoost …")
+    print("\n[1/4] Training CatBoost …")
     cb_result = CatBoostTrainer().fit(train_df, test_df, feature_cols)
     path = registry.save(
         "catboost",
@@ -158,7 +167,7 @@ async def main() -> None:
     # LightGBM (ablation)
     # ------------------------------------------------------------------
     if os.environ.get("SKIP_LGB") != "1":
-        print("\n[2/3] Training LightGBM …")
+        print("\n[2/4] Training LightGBM …")
         lgb_result = LightGBMTrainer().fit(train_df, test_df, feature_cols)
         path = registry.save(
             "lightgbm",
@@ -173,13 +182,13 @@ async def main() -> None:
         print(f"  Test PR-AUC: {lgb_result.test_metrics['pr_auc']:.4f}  → {path}")
         results.append(lgb_result)
     else:
-        print("\n[2/3] LightGBM skipped (SKIP_LGB=1)")
+        print("\n[2/4] LightGBM skipped (SKIP_LGB=1)")
 
     # ------------------------------------------------------------------
     # Logistic Regression (baseline)
     # ------------------------------------------------------------------
     if os.environ.get("SKIP_LR") != "1":
-        print("\n[3/3] Training Logistic Regression …")
+        print("\n[3/4] Training Logistic Regression …")
         lr_result = LRTrainer().fit(train_df, test_df, feature_cols)
         path = registry.save(
             "logistic_regression",
@@ -194,7 +203,73 @@ async def main() -> None:
         print(f"  Test PR-AUC: {lr_result.test_metrics['pr_auc']:.4f}  → {path}")
         results.append(lr_result)
     else:
-        print("\n[3/3] Logistic Regression skipped (SKIP_LR=1)")
+        print("\n[3/4] Logistic Regression skipped (SKIP_LR=1)")
+
+    # ------------------------------------------------------------------
+    # TabPFN v2 (per-borough specialist; feeds the CatBoost + TabPFN row)
+    # ------------------------------------------------------------------
+    if os.environ.get("SKIP_TABPFN") != "1":
+        print("\n[4/4] Training TabPFN (per-borough) …")
+        cat_cols = [c for c in ["borough"] if c in feature_cols]
+        test_labels: list[np.ndarray] = []
+        test_probs: list[np.ndarray] = []
+        cv_means: list[float] = []
+
+        for borough in sorted(train_df["borough"].unique()):
+            bo_train = train_df[train_df["borough"] == borough].reset_index(drop=True)
+            bo_test = test_df[test_df["borough"] == borough].reset_index(drop=True)
+            if bo_train.empty or bo_test.empty:
+                continue
+            if len(bo_train) > TabPFNTrainer.MAX_ROWS:
+                bo_train = bo_train.sample(
+                    TabPFNTrainer.MAX_ROWS, random_state=42
+                ).reset_index(drop=True)
+
+            bo_result = TabPFNTrainer().fit(bo_train, bo_test, feature_cols)
+            path = registry.save(
+                f"tabpfn_{borough.lower()}",
+                bo_result.model,
+                metadata={
+                    "borough": borough,
+                    "feature_cols": feature_cols,
+                    "cv_pr_auc_mean": bo_result.cv_pr_auc_mean,
+                    "cv_pr_auc_std": bo_result.cv_pr_auc_std,
+                    "test_metrics": bo_result.test_metrics,
+                },
+            )
+            (path / "report.md").write_text(_report_md(bo_result))
+            print(f"  [{borough}] Test PR-AUC: {bo_result.test_metrics['pr_auc']:.4f}  → {path}")
+
+            X_bo_test = bo_test[feature_cols].copy()
+            X_bo_test_enc, _, _ = _encode_categoricals(
+                X_bo_test, X_bo_test.iloc[:1].copy(), cat_cols
+            )
+            y_bo_prob = bo_result.model.predict_proba(X_bo_test_enc)[:, 1]
+
+            test_labels.append(bo_test[LABEL_COL].astype(int).values)
+            test_probs.append(y_bo_prob)
+            cv_means.append(bo_result.cv_pr_auc_mean)
+
+        if test_labels:
+            agg_metrics = metric_bundle(
+                np.concatenate(test_labels), np.concatenate(test_probs)
+            )
+            tabpfn_result = TrainResult(
+                model_name="tabpfn",
+                model=None,
+                label_encoder=None,
+                fold_metrics=[],
+                cv_pr_auc_mean=float(np.mean(cv_means)),
+                cv_pr_auc_std=float(np.std(cv_means)),
+                test_metrics=agg_metrics,
+                top_shap_features={},
+                feature_cols=feature_cols,
+            )
+            print(f"  [aggregate] Test PR-AUC: {agg_metrics['pr_auc']:.4f}  "
+                  f"Top-decile lift: {agg_metrics['top_decile_lift']:.2f}x")
+            results.append(tabpfn_result)
+    else:
+        print("\n[4/4] TabPFN skipped (SKIP_TABPFN=1)")
 
     # ------------------------------------------------------------------
     # Ablation table
