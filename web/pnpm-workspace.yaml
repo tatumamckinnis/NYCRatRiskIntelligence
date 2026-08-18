@@ -1,4 +1,8 @@
-ignoredBuiltDependencies:
-  - '@sentry/cli'
-  - sharp
-  - unrs-resolver
+# Duplicate of the root pnpm-workspace.yaml's allowBuilds — pnpm resolves the
+# nearest pnpm-workspace.yaml relative to cwd, so a `cd web && pnpm install`
+# reads this file instead of the repo-root one. Keep both in sync.
+allowBuilds:
+  "@sentry/cli": false
+  "@vaadin/vaadin-usage-statistics": false
+  sharp: false
+  unrs-resolver: false
