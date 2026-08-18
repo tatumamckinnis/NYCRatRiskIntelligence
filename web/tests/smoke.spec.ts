@@ -20,12 +20,19 @@ test("opens /chat, streams a response, and renders a citation", async ({ page })
 
   const input = page.getByRole("textbox", { name: "Question input" });
   await input.fill("What does 'active rat signs' mean under the NYC Health Code?");
-  await page.getByRole("button", { name: "Send" }).click();
+  const sendButton = page.getByRole("button", { name: "Send" });
+  await sendButton.click();
 
-  // Streaming indicator appears, then the Send button re-enables once the
-  // stream completes. Render on Render's free tier can cold-start (~30s),
-  // so allow generous headroom before the response finishes.
-  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled({ timeout: 60_000 });
+  // The button's aria-label stays "Send" throughout (so the locator above
+  // keeps matching), but its visible content toggles between a pulsing "●"
+  // while streaming and the literal text "Send" once done — that's the
+  // real completion signal. `disabled` is *not* a reliable signal here:
+  // it's `!input.trim() || isStreaming`, and the input is cleared as soon
+  // as the message sends, so `disabled` stays true regardless of streaming
+  // state once there's no text left in the box.
+  await expect(sendButton).toHaveText("●");
+  // Render's free tier can cold-start (~30s), so allow generous headroom.
+  await expect(sendButton).toHaveText("Send", { timeout: 60_000 });
 
   // At least one §-citation pill should be rendered in the final answer.
   await expect(page.getByText(/§\d/).first()).toBeVisible();
