@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from rat_api.config import get_settings
 from rat_api.ml.features import current_iso_week, get_nta_features
 from rat_api.ml.predict import FEATURE_LABELS, predict_risk
-from rat_api.rag.retrieve import RetrievedChunk, retrieve
+from rat_api.rag.retriever import RetrievedChunk, retrieve
 
 log = logging.getLogger(__name__)
 
@@ -113,10 +113,16 @@ async def get_nta_narrative(nta_id: str, request: Request) -> NarrativeResponse:
                 rag_sources=[],
             )
 
-        # Retrieve RAG context
+        # Retrieve RAG context. Uses the same hybrid BM25+dense+rerank
+        # pipeline as /chat (retriever.py), not the old Voyage-AI-only
+        # rat_api.rag.retrieve module — that one hard-depended on
+        # VOYAGEAI_API_KEY/COHERE_API_KEY, neither of which is configured
+        # in render.yaml, so it silently ran on zero-vector embeddings.
+        # retriever.py degrades to BM25-only under the same env flags
+        # /chat already relies on (DISABLE_VECTOR_SEARCH/DISABLE_RERANKER).
         query = _build_rag_query(nta_id, result)
         try:
-            chunks = await retrieve(query, conn, top_k=_MAX_RAG_CHUNKS)
+            chunks = await retrieve(query, conn, top_k_final=_MAX_RAG_CHUNKS)
         except Exception as exc:  # noqa: BLE001
             log.warning("RAG retrieval failed for %s: %s", nta_id, exc)
             chunks = []
