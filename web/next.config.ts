@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["maplibre-gl", "react-map-gl"],
+  transpilePackages: ["maplibre-gl"],
   turbopack: {},
 };
 

@@ -46,7 +46,16 @@ jobs:
     if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Render deploy hook
-        # Set RENDER_DEPLOY_HOOK_URL in GitHub repo secrets.
+      - name: Trigger Render deploy hook (optional)
+        # render.yaml has autoDeploy: true, so Render already deploys
+        # directly from the git push via its native GitHub integration —
+        # independent of this workflow passing or failing. This hook is an
+        # optional *additional* trigger (e.g. useful if autoDeploy is ever
+        # turned off to gate deploys behind CI); skip cleanly if unset
+        # rather than hard-failing the job over an optional step.
         run: |
-          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL not set — skipping (Render autoDeploy handles this)."
+            exit 0
+          fi
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
