@@ -56,3 +56,15 @@ The output quality difference is acceptable for this use case: both models recei
 - Groq rate limit (30 req/min) becomes a bottleneck at >30 concurrent chat users. Mitigation: `asyncio.Semaphore(10)` on the generation call; document in the runbook.
 - If Claude is ever re-enabled, update `model` in `generator.py`, `retriever.py`, and `judge.py`, and restore `ANTHROPIC_API_KEY` to required env vars.
 - `llm.usd_cost` in trace spans is logged as `0.0` for all Groq calls (free tier). Cost tracking remains wired up for easy re-activation with paid providers.
+
+---
+
+## Addendum (2026-08-18) — `llama-3.3-70b-versatile` and `llama-3.1-8b-instant` deprecated by Groq
+
+Groq removed both Llama models from its lineup at some point after this ADR was written. Production `/chat` was silently broken end-to-end as a result — confirmed via `curl` against the live endpoint (`litellm.NotFoundError: model llama-3.3-70b-versatile does not exist`) and by manually triggering `rag-eval-nightly.yml`, whose gold-set run returned an empty response for all 50 items. Query rewriting (`retriever.py`) and the faithfulness judge (`judge.py`) failed the same way but degraded silently (query rewriting falls back to the original query on any error; the judge returns a `-1` skipped sentinel), which is why the outage wasn't caught by either of those paths.
+
+Queried `https://api.groq.com/openai/v1/models` with the project's own key to get the current lineup and swapped to the largest available general-purpose instruct model:
+- `/chat` generation (`generator.py`) and the eval judge (`judge.py`): `llama-3.3-70b-versatile` → `openai/gpt-oss-120b`
+- Query rewriting (`retriever.py`): `llama-3.1-8b-instant` → `openai/gpt-oss-20b`
+
+**Consequence**: this is a live-model dependency risk inherent to riding a free-tier provider's current lineup — Groq can deprecate models without notice to this project. There's no CI signal that would have caught this automatically before now, because `rat_evals.runners.main()` never enforced a non-zero exit code on failing metrics (separately fixed alongside this addendum). Consider a lightweight periodic smoke check (e.g. as part of `keepalive.yml`) that actually calls `/chat` with a trivial question and asserts a non-error response, not just `/health`.

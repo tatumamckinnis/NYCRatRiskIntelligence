@@ -27,6 +27,7 @@ import datetime
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -76,15 +77,23 @@ async def _call_chat(
     base_url: str,
     question: str,
     session_id: str | None = None,
-) -> tuple[str, str | None]:
-    """POST /chat, consume SSE stream, return (full_text, session_id_header)."""
+) -> tuple[str, str | None, list[dict]]:
+    """POST /chat, consume SSE stream, return (full_text, session_id_header, citations).
+
+    Tracks the preceding ``event:`` line per the SSE spec (reset on each
+    blank line) so the ``event: citations`` frame is routed separately from
+    the default ``event: message`` token frames instead of being mistaken
+    for literal answer text.
+    """
     url = f"{base_url.rstrip('/')}/chat"
     payload: dict[str, Any] = {"question": question}
     if session_id:
         payload["session_id"] = session_id
 
     tokens: list[str] = []
+    citations: list[dict] = []
     returned_session: str | None = None
+    current_event = "message"
 
     async with client.stream(
         "POST", url, json=payload, timeout=httpx.Timeout(90.0, connect=10.0)
@@ -92,14 +101,27 @@ async def _call_chat(
         resp.raise_for_status()
         returned_session = resp.headers.get("x-session-id")
         async for line in resp.aiter_lines():
+            if line == "":
+                current_event = "message"
+                continue
+            if line.startswith("event: "):
+                current_event = line[len("event: "):]
+                continue
             if not line.startswith("data: "):
                 continue
             payload_text = line[len("data: "):]
+            if current_event == "citations":
+                try:
+                    citations = json.loads(payload_text)
+                except json.JSONDecodeError:
+                    log.warning("Could not parse citations frame: %r", payload_text[:200])
+                current_event = "message"
+                continue
             if payload_text == "[DONE]":
                 break
             tokens.append(payload_text)
 
-    return "".join(tokens), returned_session
+    return "".join(tokens), returned_session, citations
 
 
 # ---------------------------------------------------------------------------
@@ -183,20 +205,25 @@ async def run_eval_suite(
     async def _eval_one(idx: int, item: dict) -> None:
         async with sem:
             log.info("[%d/%d] %s: %s", idx + 1, len(items), item["id"], item["question"][:70])
+            answer = ""
+            citations: list[dict] = []
             try:
                 async with httpx.AsyncClient() as client:
-                    answer, _ = await _call_chat(client, base_url, item["question"])
+                    answer, _, citations = await _call_chat(client, base_url, item["question"])
             except httpx.HTTPStatusError as exc:
                 log.warning("HTTP error on %s: %s", item["id"], exc)
-                answer = ""
             except Exception as exc:  # noqa: BLE001
                 log.warning("Error on %s: %s", item["id"], exc)
-                answer = ""
 
             responses[idx] = answer
 
-            # Try to get retrieved chunks from trace sink
-            if trace_jsonl:
+            # Primary source: citations parsed straight off the /chat SSE
+            # stream (no server-side file access needed). Trace-sink lookup
+            # is kept only as a legacy fallback for older API deployments
+            # that don't yet emit the `event: citations` frame.
+            if citations:
+                retrieved_per_item[idx] = citations
+            elif trace_jsonl:
                 retrieved_per_item[idx] = _load_trace_chunks(trace_jsonl, item["question"])
 
     await asyncio.gather(*(_eval_one(i, it) for i, it in enumerate(items)))
@@ -395,6 +422,13 @@ def main() -> None:
         )
     )
     _print_summary(results)
+
+    # Gate CI on quality: fail the job if any computed threshold missed.
+    # `None` means the metric wasn't computed (informational only) — not
+    # a hard failure, so a metric that's still being wired up doesn't
+    # block every run.
+    if any(v is False for v in results["passes"].values()):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

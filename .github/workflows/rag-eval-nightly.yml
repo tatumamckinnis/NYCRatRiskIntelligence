@@ -26,7 +26,9 @@ jobs:
       - name: Run eval suite
         # Hits the deployed /chat endpoint with the 50-item gold set.
         # Results written to evals/results/<date>.json (gitignored).
-        # Fails the job if Recall@5 < 0.80 or faithfulness < 0.75.
+        # Fails the job (non-zero exit) if citation_accuracy < 0.60,
+        # recall@5 < 0.70, refusal_calibration < 0.80, or faithfulness < 0.70
+        # (see _THRESHOLDS in rat_evals/runners.py).
         run: uv run --package rat-evals python -m rat_evals.runners
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}

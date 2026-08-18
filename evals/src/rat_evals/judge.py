@@ -1,4 +1,4 @@
-"""Faithfulness judge using Groq llama-3.3-70b (free) via the OpenAI-compatible API (T-42).
+"""Faithfulness judge using Groq openai/gpt-oss-120b (free) via the OpenAI-compatible API (T-42).
 
 ``judge_faithfulness(question, answer, chunks)`` returns 1 if the answer is
 supported by the retrieved chunks, 0 otherwise.
@@ -12,7 +12,7 @@ import os
 log = logging.getLogger(__name__)
 
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-_JUDGE_MODEL = "llama-3.3-70b-versatile"
+_JUDGE_MODEL = "openai/gpt-oss-120b"
 
 _JUDGE_SYSTEM = (
     "You are a faithful-answer evaluator. You will be given a question, "

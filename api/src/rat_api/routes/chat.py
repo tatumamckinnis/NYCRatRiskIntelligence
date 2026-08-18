@@ -2,12 +2,21 @@
 
 Request body: ``{"question": "...", "session_id": "<uuid-or-null>"}``
 
-Streams ``data: <token>\\n\\n`` SSE frames; final frame is ``data: [DONE]\\n\\n``.
+Streams SSE frames:
+- One ``event: citations`` frame (JSON array of retrieved chunks) emitted
+  once, immediately after retrieval and before generation starts. Lets
+  clients (and the eval runner) know what was actually retrieved without
+  needing server-side trace-file access.
+- ``data: <token>\\n\\n`` frames (default ``event: message``) as the answer
+  streams in.
+- Final frame is ``data: [DONE]\\n\\n``.
+
 Sets ``X-Session-Id`` response header to the session UUID (new or existing).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import AsyncIterator
@@ -64,6 +73,19 @@ async def _sse_stream(
             span.set_attribute("question", question[:200])
 
             chunks = await retrieve(question, conn)
+
+            citations_json = json.dumps([
+                {
+                    "chunk_id": c.chunk_id,
+                    "citation": c.citation,
+                    "authority": c.authority,
+                    "document": c.document,
+                    "content": c.content[:300],
+                }
+                for c in chunks
+            ])
+            yield f"event: citations\ndata: {citations_json}\n\n"
+
             async for token in generate_stream(
                 question, chunks, session_id=session_id, conn=conn
             ):

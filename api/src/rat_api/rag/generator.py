@@ -1,6 +1,8 @@
 """Streaming LLM generation for the /chat endpoint (T-41).
 
-Uses Groq ``llama-3.3-70b-versatile`` via litellm (free tier).
+Uses Groq ``openai/gpt-oss-120b`` via litellm (free tier). Originally
+``llama-3.3-70b-versatile``, swapped after Groq deprecated that model —
+see docs/decisions/0006-groq-llm.md.
 Wraps the call in an ``llm_span`` that records token counts.
 Persists the completed message pair to ``app.chat_messages``.
 """
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_MODEL = "groq/llama-3.3-70b-versatile"
+_MODEL = "groq/openai/gpt-oss-120b"
 _MAX_CONTEXT_CHARS = 4000  # per-chunk truncation for context window safety
 
 
@@ -95,7 +97,13 @@ async def generate_stream(
 
         except Exception as exc:  # noqa: BLE001
             log.error("LLM stream error: %s", exc)
-            yield f"\n[Error: {exc}]"
+            # Must stay a single line: this gets wrapped as `data: {token}\n\n`
+            # in chat.py, and any embedded newline breaks SSE framing — the
+            # continuation line lacks a `data: ` prefix and every consumer
+            # (frontend, eval runner) silently drops it, masking the error
+            # as an empty response instead of surfacing it.
+            safe_msg = str(exc).replace("\n", " ").replace("\r", " ")
+            yield f"[Error: {safe_msg}]"
             return
 
         span.set_attribute("llm.token_count.prompt", prompt_tokens)

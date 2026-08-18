@@ -2,7 +2,7 @@
 
 Steps
 -----
-1. **Query rewriting** — Groq llama-3.1-8b-instant expands statutory vocabulary (≤ 200 tokens).
+1. **Query rewriting** — Groq openai/gpt-oss-20b expands statutory vocabulary (≤ 200 tokens).
 2. **Dense retrieval** — BGE-M3 local query embedding → pgvector HNSW cosine top-K.
 3. **BM25 retrieval** — ``plainto_tsquery`` + ``ts_rank_cd`` on the ``content_tsv`` index.
 4. **RRF fusion** — Reciprocal Rank Fusion (k=60) over dense + BM25 result lists.
@@ -52,7 +52,7 @@ class RetrievedChunk:
 # ---------------------------------------------------------------------------
 
 def _rewrite_query(query: str, *, api_key: str) -> str:
-    """Expand *query* with statutory vocabulary via Groq llama-3.1-8b-instant (free).
+    """Expand *query* with statutory vocabulary via Groq openai/gpt-oss-20b (free).
 
     Returns the original query on any failure so retrieval is never blocked.
     """
@@ -62,7 +62,7 @@ def _rewrite_query(query: str, *, api_key: str) -> str:
     try:
         import litellm  # noqa: PLC0415
         resp = litellm.completion(
-            model="groq/llama-3.1-8b-instant",
+            model="groq/openai/gpt-oss-20b",
             max_tokens=200,
             api_key=api_key,
             messages=[
