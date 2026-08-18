@@ -227,12 +227,15 @@ async def run_eval_suite(
                 retrieved_per_item[idx] = _load_trace_chunks(trace_jsonl, item["question"])
 
             # Groq free tier caps at 8000 tokens/minute. Each /chat call
-            # itself makes 2 Groq calls (query rewrite + generation); firing
-            # 50 of these back-to-back reliably exhausted the budget in
-            # testing (42/50 items hit RateLimitError in one run). A fixed
-            # pace, on top of litellm's own retry/backoff in generator.py,
-            # keeps a full run comfortably under the ceiling.
-            await asyncio.sleep(2.0)
+            # makes 2 Groq calls (query rewrite + generation) using roughly
+            # 2500-3000 tokens combined even after trimming context budgets
+            # (see generator.py/retriever.py) — sustaining that rate needs
+            # ~20s+ between dispatches, not the 2s originally guessed here.
+            # Verified empirically: 2.0s still left 19/50 items rate-limited
+            # in a full run; this is a deliberate tradeoff (a ~15-20 min
+            # nightly run) in exchange for a mostly-clean quality signal,
+            # not a guarantee of zero contamination.
+            await asyncio.sleep(15.0)
 
     await asyncio.gather(*(_eval_one(i, it) for i, it in enumerate(items)))
 
@@ -266,8 +269,10 @@ async def run_eval_suite(
             api_key=api_key,
         )
         faithful_scores.append(score)
-        # Same Groq TPM pacing rationale as the /chat loop above.
-        await asyncio.sleep(1.5)
+        # Smaller calls than /chat (~1000-1500 tokens: judge prompt + up to
+        # 60-token response), but same TPM ceiling — same rationale as the
+        # /chat loop above, just a shorter gap since each call is lighter.
+        await asyncio.sleep(8.0)
 
     # Summarise
     valid_faithful = [s for s in faithful_scores if s >= 0]
