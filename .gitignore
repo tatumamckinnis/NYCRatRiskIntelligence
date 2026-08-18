@@ -59,8 +59,12 @@ web/.vercel/
 *.swo
 
 # OpenTelemetry JSONL trace sink (local dev)
+# Scoped to trace-sink directories only — do NOT use a blanket *.jsonl here,
+# it previously swallowed evals/gold/article151_qa_v1.jsonl and kept the
+# gold eval set out of every CI checkout.
 traces.jsonl
-*.jsonl
+logs/*.jsonl
+obs/*.jsonl
 
 # Generated reports
 ml/artifacts/data_quality/
