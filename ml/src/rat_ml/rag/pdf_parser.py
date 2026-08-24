@@ -278,6 +278,98 @@ def version_hash(text: str) -> str:
 # High-level helper: build chunks from pages of text
 # ---------------------------------------------------------------------------
 
+_PENALTY_ROW_CODE_RE = re.compile(r"\bAH\d{1,3}[A-Z]{0,2}\b")
+_PENALTY_TABLE_HEADER = "SECTION/RULE DESCRIPTION PENALTY DEFAULT"
+_PENALTY_ROW_CITATION_RE = re.compile(
+    r"(?:NYC\s+Health\s+Code|Administrative\s+Code|24\s+RCNY)\s*"
+    r"(?:section\s+)?§?\s*(\d+(?:[.\-]\w+)*(?:\([a-z0-9]+\))*)",
+    re.IGNORECASE,
+)
+
+
+def parse_penalty_table(
+    pages: list[str],
+    *,
+    authority: str,
+    document: str,
+) -> list[Chunk]:
+    """Parse a flat, borderless ECB-style fine-schedule PDF into one chunk per row.
+
+    ``.extract_text()`` on a table PDF with no ruling lines (pdfplumber's
+    ``extract_tables()`` finds zero tables here) collapses every column into
+    one linear wall of text — a single 400-token sliding-window chunk then
+    mixes several unrelated violation rows (e.g. rodent penalties interleaved
+    with smoking and menu-labeling violations), which starves BM25 of any
+    chunk that's actually *about* the thing being searched for.
+
+    Each row in this document ends with a unique ``AHxxx`` violation code, so
+    that code is used as a row delimiter: the row's clean text runs from just
+    after the previous code to just after this one. The citation is the last
+    ``NYC Health Code``/``Administrative Code``/``24 RCNY`` reference found
+    inside that span (rows sometimes reference an earlier section too, so the
+    *last* match is the one this row's fine amount actually belongs to).
+    """
+    full_text = "\n\n".join(p for p in pages if p.strip())
+    header_idx = full_text.find(_PENALTY_TABLE_HEADER)
+    intro = full_text[:header_idx].strip() if header_idx != -1 else ""
+    table_start = header_idx + len(_PENALTY_TABLE_HEADER) if header_idx != -1 else 0
+    table_text = full_text[table_start:]
+
+    chunks: list[Chunk] = []
+
+    if intro:
+        leading_refs = extract_cross_refs(intro)
+        citation = leading_refs[0] if leading_refs else "§(intro)"
+        prefix = build_contextual_prefix(authority, document, citation, intro)
+        chunks.append(
+            Chunk(
+                citation=citation,
+                content=intro,
+                content_with_prefix=prefix,
+                token_count=_count_tokens(intro),
+                version_hash=version_hash(prefix),
+                defined_terms=extract_defined_terms(intro),
+                cross_refs=extract_cross_refs(intro),
+            )
+        )
+
+    prev_end = 0
+    last_section: str | None = None
+    for m in _PENALTY_ROW_CODE_RE.finditer(table_text):
+        row_text = table_text[prev_end:m.end()].strip()
+        prev_end = m.end()
+        if not row_text:
+            continue
+
+        ah_code = m.group(0)
+        cite_matches = list(_PENALTY_ROW_CITATION_RE.finditer(row_text))
+        if cite_matches:
+            section = cite_matches[-1].group(1)
+            last_section = section
+            citation = f"§{section} ({ah_code})"
+        elif last_section:
+            # Escalating-tier continuation rows (2nd/3rd/4th violation) often
+            # don't restate the rule's citation — inherit the previous row's.
+            citation = f"§{last_section} (cont., {ah_code})"
+        else:
+            citation = f"ECB {ah_code}"
+
+        prefix = build_contextual_prefix(authority, document, citation, row_text)
+        chunks.append(
+            Chunk(
+                citation=citation,
+                content=row_text,
+                content_with_prefix=prefix,
+                token_count=_count_tokens(row_text),
+                version_hash=version_hash(prefix),
+                defined_terms=extract_defined_terms(row_text),
+                cross_refs=extract_cross_refs(row_text),
+            )
+        )
+
+    return chunks
+
+
 def pages_to_chunks(
     pages: list[str],
     *,

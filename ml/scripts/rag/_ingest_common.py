@@ -35,12 +35,20 @@ def _make_corpus_chunks(
     *,
     authority: str,
     document: str,
+    chunker=None,
 ) -> list:
-    """Convert parsed PDF pages to CorpusChunk objects."""
+    """Convert parsed PDF pages to CorpusChunk objects.
+
+    ``chunker`` defaults to the legal-hierarchy parser (``pages_to_chunks``);
+    pass an alternate ``(pages, *, authority, document) -> list[Chunk]``
+    callable for documents whose layout it doesn't fit (e.g. a borderless
+    fine-schedule table — see ``parse_penalty_table``).
+    """
     from rat_ml.rag.corpus import CorpusChunk  # noqa: PLC0415
     from rat_ml.rag.pdf_parser import pages_to_chunks  # noqa: PLC0415
 
-    raw_chunks = pages_to_chunks(pages, authority=authority, document=document)
+    chunker = chunker or pages_to_chunks
+    raw_chunks = chunker(pages, authority=authority, document=document)
     result = []
     for c in raw_chunks:
         chunk_id = _chunk_id_from_hash(c.version_hash)
@@ -100,6 +108,7 @@ async def _run(
     document: str,
     db_url: str,
     dry_run: bool,
+    chunker=None,
 ) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -108,7 +117,7 @@ async def _run(
         log.error("No pages parsed — aborting.")
         return 1
 
-    chunks = _make_corpus_chunks(pages, authority=authority, document=document)
+    chunks = _make_corpus_chunks(pages, authority=authority, document=document, chunker=chunker)
     log.info("Parsed %d chunks from %d pages", len(chunks), len(pages))
 
     if dry_run:
@@ -135,6 +144,7 @@ def run_ingest(
     authority: str,
     document: str,
     argv: list[str] | None = None,
+    chunker=None,
 ) -> int:
     args = _parse_args(argv)
     db_url = args.db_url or os.environ.get("DIRECT_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
@@ -150,5 +160,6 @@ def run_ingest(
             document=document,
             db_url=db_url,
             dry_run=args.dry_run,
+            chunker=chunker,
         )
     )
