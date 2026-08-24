@@ -1,19 +1,49 @@
 name: Keepalive ping
 
 # Hits /health every 6 days to prevent Supabase Free idle pause (7-day threshold)
-# and Render free tier spin-down.
+# and Render free tier spin-down. Also hits /chat daily — /health alone can't
+# catch a dead Groq model (this happened once silently in prod, see
+# docs/decisions/0006-groq-llm.md and the 2026-08-18 outage postmortem).
 
 on:
   schedule:
     - cron: "0 12 */6 * *"   # every 6 days at 12:00 UTC
+    - cron: "0 13 * * *"     # daily at 13:00 UTC
   workflow_dispatch:
 
 jobs:
   ping:
     name: Ping /health
+    if: github.event.schedule == '0 12 */6 * *' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Ping API health endpoint
         run: |
           curl -fsS "${{ secrets.NEXT_PUBLIC_API_BASE_URL }}/health" \
             -o /dev/null -w "HTTP %{http_code}\n"
+
+  chat-smoke:
+    name: Smoke test /chat
+    if: github.event.schedule == '0 13 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /chat and verify a real (non-error) answer streams back
+        run: |
+          BASE="${{ secrets.NEXT_PUBLIC_API_BASE_URL }}"
+          BODY=$(curl -fsS --max-time 60 -X POST "$BASE/chat" \
+            -H "Content-Type: application/json" \
+            -d '{"question": "What does active rat signs mean under the NYC Health Code?"}')
+
+          if echo "$BODY" | grep -q '\[Error:'; then
+            echo "::error::/chat returned an error frame — Groq model likely dead or misconfigured"
+            echo "$BODY"
+            exit 1
+          fi
+
+          if ! echo "$BODY" | grep -q '^data: '; then
+            echo "::error::/chat returned no data: frames — endpoint may be broken"
+            echo "$BODY"
+            exit 1
+          fi
+
+          echo "/chat smoke test passed"
