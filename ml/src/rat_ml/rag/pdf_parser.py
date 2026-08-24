@@ -302,12 +302,18 @@ def parse_penalty_table(
     with smoking and menu-labeling violations), which starves BM25 of any
     chunk that's actually *about* the thing being searched for.
 
-    Each row in this document ends with a unique ``AHxxx`` violation code, so
-    that code is used as a row delimiter: the row's clean text runs from just
-    after the previous code to just after this one. The citation is the last
-    ``NYC Health Code``/``Administrative Code``/``24 RCNY`` reference found
-    inside that span (rows sometimes reference an earlier section too, so the
-    *last* match is the one this row's fine amount actually belongs to).
+    Every row — whether a flat single-fine violation or a rodent-style row
+    with four escalating (1st–4th) penalty tiers — restates its own
+    ``NYC Health Code``/``Administrative Code``/``24 RCNY`` citation as the
+    first thing in reading order. That citation, not the ``AHxxx`` violation
+    code, is the correct row delimiter: an ``AHxxx`` code only marks one
+    *tier* within a row (a row with four escalating tiers carries four
+    codes), so splitting on it instead — as an earlier version of this
+    parser did — sliced a single violation's description across several
+    chunks, each missing either the descriptive text or the dollar amounts
+    it belongs to. Splitting on the citation keeps a row's full description
+    and all of its tier amounts (and every ``AHxxx`` code covering it)
+    together in one chunk.
     """
     full_text = "\n\n".join(p for p in pages if p.strip())
     header_idx = full_text.find(_PENALTY_TABLE_HEADER)
@@ -333,26 +339,19 @@ def parse_penalty_table(
             )
         )
 
-    prev_end = 0
-    last_section: str | None = None
-    for m in _PENALTY_ROW_CODE_RE.finditer(table_text):
-        row_text = table_text[prev_end:m.end()].strip()
-        prev_end = m.end()
+    cite_matches = list(_PENALTY_ROW_CITATION_RE.finditer(table_text))
+    for i, m in enumerate(cite_matches):
+        row_end = cite_matches[i + 1].start() if i + 1 < len(cite_matches) else len(table_text)
+        row_text = table_text[m.start():row_end].strip()
         if not row_text:
             continue
 
-        ah_code = m.group(0)
-        cite_matches = list(_PENALTY_ROW_CITATION_RE.finditer(row_text))
-        if cite_matches:
-            section = cite_matches[-1].group(1)
-            last_section = section
-            citation = f"§{section} ({ah_code})"
-        elif last_section:
-            # Escalating-tier continuation rows (2nd/3rd/4th violation) often
-            # don't restate the rule's citation — inherit the previous row's.
-            citation = f"§{last_section} (cont., {ah_code})"
+        section = m.group(1)
+        ah_codes = _PENALTY_ROW_CODE_RE.findall(row_text)
+        if ah_codes:
+            citation = f"§{section} ({'/'.join(ah_codes)})"
         else:
-            citation = f"ECB {ah_code}"
+            citation = f"§{section}"
 
         prefix = build_contextual_prefix(authority, document, citation, row_text)
         chunks.append(

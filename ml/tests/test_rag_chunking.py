@@ -137,9 +137,11 @@ def test_extract_defined_terms_finds_terms():
 # parse_penalty_table — borderless fine-schedule table parsing
 # ---------------------------------------------------------------------------
 
-# Mimics the real ECB PDF's reading-order artifacts: a citation appears
-# *before* its row's own trailing continuation text, and escalating-tier
-# rows (2nd/3rd/4th violation) restate no citation at all.
+# Mimics the real ECB PDF's reading-order artifacts: each row restates its
+# own citation as the first thing in reading order, and a row with
+# escalating penalty tiers (1st/2nd/3rd/4th violation) carries multiple
+# AHxxx codes — one per tier — for the *same* row, with its dollar amounts
+# interleaved with the tier labels rather than following its own AH code.
 _PENALTY_TABLE_PAGE = """\
 §3-110
 HEALTH CODE AND MISCELLANEOUS FOOD VENDOR VIOLATIONS PENALTY SCHEDULE
@@ -150,9 +152,8 @@ NYC Health Code 3.09 Failing to abate or remediate nuisance $1000 $2000
 AH3M
 NYC Health Code 151.02(a) Failure to eliminate rodent infestation shown by 1st 1st
 active rodent signs: one or more live rodents, or Violation: Violation:
-1st: AH3N
-rodent droppings, burrows, runways, tracks, rub $300 $600
-2nd: AH3W
+1st: AH3N rodent droppings, burrows, runways, tracks, rub $300 $600
+2nd: AH3W marks or gnaw marks; in interior or exterior of premises.
 NYC Health Code 81.09 Potentially hazardous foods at improper temperatures 385 770
 AH02
 """
@@ -164,30 +165,33 @@ def _parse_sample_penalty_table():
     )
 
 
-def test_parse_penalty_table_splits_one_chunk_per_row():
+def test_parse_penalty_table_splits_one_chunk_per_citation_row():
     chunks = _parse_sample_penalty_table()
-    # intro + AH3M + AH3N + AH3W + AH02
-    assert len(chunks) == 5
+    # intro + §3.09 row + §151.02(a) row (AH3N+AH3W tiers) + §81.09 row
+    assert len(chunks) == 4
 
 
 def test_parse_penalty_table_does_not_mix_unrelated_rows():
     chunks = _parse_sample_penalty_table()
-    rodent_chunk = next(c for c in chunks if "AH3M" in c.citation)
+    rodent_chunk = next(c for c in chunks if "3.09" in c.citation)
     # Regression: the old sliding-window chunker put this in the same
     # 400-token blob as the calorie-labeling/smoking/permit-transfer rows —
     # a real chunk about a rodent-relevant penalty must not contain an
     # unrelated violation's text.
     assert "hazardous foods" not in rodent_chunk.content
-    assert "3.09" in rodent_chunk.citation
 
 
-def test_parse_penalty_table_continuation_row_inherits_citation():
+def test_parse_penalty_table_multi_tier_row_keeps_description_and_amount_together():
     chunks = _parse_sample_penalty_table()
-    # AH3W is a "2nd violation" continuation row with no citation of its
-    # own — it must inherit §151.02(a) from the preceding AH3N row, not
-    # fall back to a bare, uncited "ECB AH3W".
-    continuation = next(c for c in chunks if "AH3W" in c.citation)
-    assert "151.02(a)" in continuation.citation
+    # Regression: an earlier version split on the AHxxx tier code instead of
+    # the row's citation, which sliced this row's description away from its
+    # own dollar amount — a chunk about "burrows" never contained "$300".
+    # Both tier codes belong to the same row and must land in one chunk,
+    # alongside the amount that answers a "what's the penalty" question.
+    row = next(c for c in chunks if "AH3N" in c.citation)
+    assert "AH3W" in row.citation
+    assert "burrows" in row.content
+    assert "$300" in row.content
 
 
 def test_parse_penalty_table_intro_paragraph_is_its_own_chunk():
