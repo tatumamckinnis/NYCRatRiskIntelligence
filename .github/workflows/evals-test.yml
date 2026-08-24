@@ -1,0 +1,47 @@
+name: Evals — lint and test
+
+# evals/ previously had zero automated testing — a regex bug in
+# refusal_calibration() silently scored every correct refusal as 0.0 for an
+# unknown period before being caught by manual inspection of a nightly run.
+# This guards rat_evals' metrics against that class of regression.
+#
+# mypy is intentionally not run here yet: judge.py/runners.py carry
+# pre-existing type-arg gaps unrelated to metrics.py, same shape as the
+# api/ mypy debt — a separate cleanup, not folded into this gate.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "evals/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  pull_request:
+    paths:
+      - "evals/**"
+      - "pyproject.toml"
+      - "uv.lock"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras
+
+      - name: Run linter
+        run: uv run ruff check evals/
+
+      - name: Run unit tests
+        run: uv run --package rat-evals pytest evals/src/tests/ -v

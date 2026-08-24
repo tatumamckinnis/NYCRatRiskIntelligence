@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 
 def recall_at_k(
     expected_citations: list[str],
-    retrieved_chunks: list[dict],
+    retrieved_chunks: list[dict[str, str]],
     k: int,
 ) -> float:
     """Fraction of *expected_citations* present in the top-*k* retrieved chunks.
@@ -48,7 +49,7 @@ def citation_accuracy(
 
 
 def refusal_calibration(
-    items: list[dict],
+    items: list[dict[str, Any]],
     responses: list[str],
 ) -> float:
     """Fraction of *unanswerable* items where the response correctly refused.
@@ -67,7 +68,10 @@ def refusal_calibration(
         return 1.0
 
     _REFUSAL_PATTERNS = re.compile(
-        r"not\s+(answered|in\s+the|covered|specified|supported|provided|found)",
+        r"not\s+(answered|in\s+the|covered|specified|supported|provided|found"
+        r"|contain\w*|mention\w*|include\w*|address\w*|state\w*|indicate\w*)"
+        r"|(?:none|nothing)\s+(?:of\s+)?(?:the\s+|retrieved\s+|supplied\s+|provided\s+)*"
+        r"(?:sources?|excerpts?|documents?|material|sections?)\b[^.]{0,40}\bmention",
         re.IGNORECASE,
     )
 

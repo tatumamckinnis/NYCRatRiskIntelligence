@@ -16,7 +16,8 @@ Usage::
     uv run --package rat-evals python -m rat_evals.runners --gold evals/gold/article151_qa_v1.jsonl
 
     # Against deployed API
-    RAT_API_URL=https://rat-api-g3lf.onrender.com uv run --package rat-evals python -m rat_evals.runners
+    RAT_API_URL=https://rat-api-g3lf.onrender.com \
+        uv run --package rat-evals python -m rat_evals.runners
 """
 
 from __future__ import annotations
@@ -304,9 +305,13 @@ async def run_eval_suite(
         "thresholds": _THRESHOLDS,
         "passes": {
             "citation_accuracy": ca_mean >= _THRESHOLDS["citation_accuracy_mean"],
-            "recall_at_k": rk_mean >= _THRESHOLDS["recall_at_k_mean"] if rk_mean is not None else None,
+            "recall_at_k": (
+                rk_mean >= _THRESHOLDS["recall_at_k_mean"] if rk_mean is not None else None
+            ),
             "refusal_calibration": rc_score >= _THRESHOLDS["refusal_calibration"],
-            "faithfulness": faith_mean >= _THRESHOLDS["faithfulness_mean"] if faith_mean is not None else None,
+            "faithfulness": (
+                faith_mean >= _THRESHOLDS["faithfulness_mean"] if faith_mean is not None else None
+            ),
         },
         "citation_accuracy_by_failure_mode": fm_summary,
         "per_item": [
@@ -315,9 +320,11 @@ async def run_eval_suite(
                 "failure_mode": item.get("failure_mode", ""),
                 "question": item["question"],
                 "citation_accuracy": round(ca, 4),
-                "recall_at_k": round(recall_at_k(item.get("expected_citations", []), chunks, top_k), 4)
-                if chunks
-                else None,
+                "recall_at_k": (
+                    round(recall_at_k(item.get("expected_citations", []), chunks, top_k), 4)
+                    if chunks
+                    else None
+                ),
                 "faithfulness": faith,
                 "response_snippet": resp[:300],
             }
@@ -354,15 +361,20 @@ def _print_summary(results: dict) -> None:
             return f"{val:.3f}  [{mark}  threshold={threshold}]"
         return f"{val:.3f}"
 
+    ca_t = _THRESHOLDS["citation_accuracy_mean"]
+    rk_t = _THRESHOLDS["recall_at_k_mean"]
+    rc_t = _THRESHOLDS["refusal_calibration"]
+    fa_t = _THRESHOLDS["faithfulness_mean"]
+
     print(f"\n{sep}")
     print(f"  Eval Results  ({results['timestamp']})")
     print(f"  n={results['n_items']}  base_url={results['base_url']}")
     print(sep)
-    print(f"  Citation Accuracy (mean):  {_fmt(m['citation_accuracy_mean'], _THRESHOLDS['citation_accuracy_mean'])}")
+    print(f"  Citation Accuracy (mean):  {_fmt(m['citation_accuracy_mean'], ca_t)}")
     top_k = results.get("top_k", 5)
-    print(f"  Recall@{top_k}:                {_fmt(m['recall_at_k_mean'], _THRESHOLDS['recall_at_k_mean'])}")
-    print(f"  Refusal Calibration:       {_fmt(m['refusal_calibration'], _THRESHOLDS['refusal_calibration'])}")
-    print(f"  Faithfulness (judge):      {_fmt(m['faithfulness_mean'], _THRESHOLDS['faithfulness_mean'])}")
+    print(f"  Recall@{top_k}:                {_fmt(m['recall_at_k_mean'], rk_t)}")
+    print(f"  Refusal Calibration:       {_fmt(m['refusal_calibration'], rc_t)}")
+    print(f"  Faithfulness (judge):      {_fmt(m['faithfulness_mean'], fa_t)}")
     if m["faithfulness_skipped"]:
         print(f"    ({m['faithfulness_skipped']} items skipped — GROQ_API_KEY not set?)")
     print(sep)
