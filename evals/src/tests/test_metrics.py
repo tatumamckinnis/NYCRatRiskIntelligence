@@ -55,6 +55,22 @@ def test_refusal_calibration_penalizes_hallucinated_answer() -> None:
     assert refusal_calibration(items, responses) == 0.0
 
 
+def test_refusal_calibration_detects_no_source_indicates_phrasing() -> None:
+    # Regression test: the 2026-08-24 nightly run scored this a miss (2/5
+    # refusal_calibration items failed detection, refusal_calibration=0.6)
+    # because the regex required a specific noun ("sources/excerpts/...")
+    # directly after "none/nothing", missing "No source ... indicates" and
+    # "none of the ... excerpts contain information about" (no "mention").
+    items = [{"failure_mode": "refusal_calibration", "must_not_say": []}] * 2
+    responses = [
+        "No source in the provided material indicates that a federal agency "
+        "oversees or can override the DOHMH's enforcement of rat-control rules.",
+        "I'm sorry, but none of the provided excerpts contain information "
+        "about the maximum criminal penalty for a repeat rodent violation.",
+    ]
+    assert refusal_calibration(items, responses) == 1.0
+
+
 def test_refusal_calibration_mixed_items_only_scores_unanswerable() -> None:
     items = [
         {"failure_mode": "citation_accuracy"},

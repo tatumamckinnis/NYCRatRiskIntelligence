@@ -67,12 +67,20 @@ def refusal_calibration(
     if not unanswerable:
         return 1.0
 
+    # A refusal is a negation word (not/no/none/nothing/cannot/...) followed,
+    # within the same sentence, by a refusal-shaped verb (contain/mention/
+    # indicate/state/...). This is deliberately loose about what sits between
+    # them so it catches varied phrasings ("do not contain", "None of the
+    # excerpts mention", "No source ... indicates", "I cannot provide") from
+    # a single pattern instead of enumerating every construction.
+    _NEGATION = r"(?:not|no|none|nothing|cannot|can't|isn't|doesn't|don't)"
+    _REFUSAL_VERB = (
+        r"(?:answer\w*|in\s+the|cover\w*|specif\w*|support\w*|provid\w*|found"
+        r"|contain\w*|mention\w*|includ\w*|address\w*|state\w*|indicat\w*"
+        r"|discuss\w*|show\w*|determin\w*|confirm\w*)"
+    )
     _REFUSAL_PATTERNS = re.compile(
-        r"not\s+(answered|in\s+the|covered|specified|supported|provided|found"
-        r"|contain\w*|mention\w*|include\w*|address\w*|state\w*|indicate\w*)"
-        r"|(?:none|nothing)\s+(?:of\s+)?(?:the\s+|retrieved\s+|supplied\s+|provided\s+)*"
-        r"(?:sources?|excerpts?|documents?|material|sections?)\b[^.]{0,40}\bmention",
-        re.IGNORECASE,
+        rf"\b{_NEGATION}\b[^.]{{0,60}}\b{_REFUSAL_VERB}", re.IGNORECASE
     )
 
     correct = 0
