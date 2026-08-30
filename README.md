@@ -116,7 +116,7 @@ cd web && pnpm dev
 - **Free-tier cold starts**: Render spins down after 15 min of inactivity; first request after sleep takes ~30s.
 - **Panel lag**: feature data ends May 2026; predictions beyond that date fall back to the most recent available week.
 - **Clay embeddings not active**: Sentinel-2 rasters were ingested but the Clay v1.5 embedding pipeline was not run due to memory constraints; `clay_pca_*` columns are NULL and excluded from training.
-- **BM25-only RAG in prod**: BGE-M3 vector search and BGE Reranker are disabled on Render free tier (512 MB RAM limit); chat uses BM25 retrieval only.
+- **BM25-only RAG in prod**: BGE-M3 vector search and BGE Reranker are disabled on Render free tier (512 MB RAM limit); chat uses BM25 retrieval only. Measured `recall_at_k_mean` ≈ 0.14–0.31 and `citation_accuracy_mean` ≈ 0.20–0.29 against the 45-item gold set (below the 0.70/0.60 targets) — investigated and confirmed structural, not a fixable bug: ~62% of expected citations are never matched by BM25 at any window size (k=5 through k=100). Closing this gap needs the Standard tier's 2 GB RAM ($25/mo) to re-enable dense retrieval; see ADR-0007's 2026-08-30 update.
 - **No custom domain**: using `*.vercel.app` and `*.onrender.com` subdomains.
 
 ---

@@ -42,11 +42,11 @@ Three issues surfaced during Phase 4 execution:
 
 | Option | Pros | Cons |
 |---|---|---|
-| **BM25-only in prod (chosen)** | Fits in 512 MB; zero API cost; answers are still cited | Estimated Recall@5 drops from ~0.82 to ~0.68 on complex queries |
+| **BM25-only in prod (chosen)** | Fits in 512 MB; zero API cost; answers are still cited | Measured Recall@5 ≈ 0.20–0.31 on the 45-item gold set with expected citations (see 2026-08-30 update below — this was never measured against real data when this ADR was first written; the ~0.82→0.68 figure below was a pre-launch estimate, not a measurement) |
 | Load BGE-M3 lazily (on first query) | Full hybrid in prod | First request OOMs; no improvement if resident in memory |
 | Use smaller reranker (`bge-reranker-base`, ~280 MB) | Fits in 512 MB | Still requires BGE-M3 for dense embed (~800 MB); net OOM |
 | Cohere Rerank 3.5 (API) | No local RAM cost | Requires `COHERE_API_KEY`; adds API dependency for free-tier path |
-| Upgrade to Render Starter ($7/mo) | Full hybrid, no OOM | Monthly cost; out of scope for $0 budget |
+| ~~Upgrade to Render Starter ($7/mo)~~ | ~~Full hybrid, no OOM~~ | **Corrected 2026-08-30**: Starter is still 512 MB RAM, same as free — it only removes spin-down/CPU throttling, it does NOT fit BGE-M3+Reranker. The actual RAM-adequate tier is **Render Standard, $25/mo, 2 GB RAM**. Out of scope for $0 budget. |
 
 BM25 retrieval is acceptable for well-formed legal queries (statute numbers, key terms). Quality degrades on colloquial or paraphrased queries where dense recall would help — documented in Known Limitations in the README.
 
@@ -62,3 +62,16 @@ BM25 retrieval is acceptable for well-formed legal queries (statute numbers, key
 - The architecture diagram shows the dev path (full hybrid). The README Known Limitations section and the runbook document the prod degraded path.
 - If Render is upgraded to a paid tier with ≥2 GB RAM, re-enable with: unset `DISABLE_VECTOR_SEARCH` and `DISABLE_RERANKER` in Render env vars — no code change required.
 - This decision is related to ADR 0001 (single-cloud / free tier) which also notes the BGE-M3 + Reranker RAM constraint.
+
+---
+
+## Update 2026-08-30 — measured the real cost of this decision, ruled out cheap fixes, reaffirmed it
+
+The nightly eval (`evals/gold/article151_qa_v1.jsonl`, 45 items with expected citations) has been running clean (no rate-limit contamination) since the pacing fix in commit `587b52c`, giving real numbers for the first time: `recall_at_k_mean` has ranged **0.14–0.31** and `citation_accuracy_mean` **0.20–0.29** across several clean runs — both well below the SPEC thresholds (0.70 / 0.60) this ADR's original estimate (~0.68/~0.82) assumed would be close enough. Two BM25-only improvement attempts were made and both ruled out:
+
+1. **Reindex `content_tsv` onto `content_with_prefix`** (so BM25 gets credit for document-name context like "ECB Penalty Schedule") — tested in isolation against the actual LLM-rewritten queries `/chat` uses in production (not raw questions): **no measurable effect** (recall@5 0.2000 → 0.2000, identical).
+2. **`ts_rank_cd` normalization tuning** (penalizing long generic chunks that outrank short specific ones) — looked like a ~30% relative improvement in an offline SQL test against raw question text, but shipped to production and **measured as a real regression** end-to-end (`recall_at_k` 0.31→0.21, `faithfulness` 0.72→0.58, dropping a previously-passing gate) — reverted same day (commits `2b572c9` → `98e0c39`, DB migration applied and downgraded). Re-tested against the real rewritten-query text afterward and confirmed the regression reproduces there too (0.20→0.13) — not a fluke.
+
+**Root cause, confirmed by sweeping the retrieval window from k=5 to k=100**: recall climbs slowly and plateaus at **~0.38 even at k=100** (out of 1280 chunks) — meaning roughly **62% of expected citations are never matched by BM25 at all**, regardless of how wide the candidate window is. This rules out any ranking/cutoff tuning as a path forward — it isn't that the right chunk is ranked too low, it's that lexical keyword search structurally cannot find a majority of the answers a paraphrased or cross-referencing legal question needs. Widening `top_k_final` in `retriever.py` also wouldn't help the `recall_at_k` metric even if it could raise real recall — the eval measures a fixed top-5 regardless of how many chunks `/chat` returns.
+
+**Conclusion**: BM25-only retrieval in prod is capped well below SPEC's targets by design, not by a fixable bug, and no further free/code-only lever was found after a genuine attempt. The only real fix is dense retrieval, which needs the Standard tier's 2 GB RAM (see corrected rationale table above). Project owner's decision as of 2026-08-30: **accept the current BM25-only state and keep this documented rather than pay for the upgrade** — this ADR's original decision stands, now with real measurements instead of a pre-launch estimate. Revisit if/when the project owner decides the $25/mo is worth it; at that point, unsetting the two env vars per the Consequences section above is still the entire re-enable path — no code change needed.
