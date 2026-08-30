@@ -155,16 +155,19 @@ async def _bm25_retrieve(
     matching more query terms rank higher via ts_rank_cd, but a chunk
     doesn't need *every* term to be a candidate at all.
 
-    ``ts_rank_cd``'s normalization defaulted to 0 (no length adjustment),
-    which let long, topically-broad chunks (e.g. a multi-page "Rodent
-    Academy" training doc) outrank short, specific chunks that actually
-    answer the question just because they contain more raw keyword hits.
-    Normalization ``5`` (``1 | 4`` — log-length + unique-word-count) fixes
-    this by rewarding term density over raw length. Verified empirically
-    against the full gold set (``evals/gold/article151_qa_v1.jsonl``):
-    recall@5 0.093→0.122, recall@6 0.115→0.144, recall@10 0.126→0.163 —
-    a consistent ~30% relative improvement at every k tested, measured
-    directly against Postgres (no LLM calls / Groq budget involved).
+    A ``ts_rank_cd`` normalization value of 5 (log-length + unique-word-
+    count) was tried here to reward term density over raw length — it
+    looked like a ~30% relative recall@k improvement in an isolated SQL
+    test against the raw gold-set question text, but measured as a real
+    regression (recall_at_k 0.31→0.21, faithfulness 0.72→0.58, both clean
+    uncontaminated runs) once tested end-to-end through the actual /chat
+    pipeline, which runs an LLM query-rewrite step before BM25 and feeds
+    the result through RRF fusion + reranking — neither of which the
+    isolated SQL test exercised. Reverted; default normalization (0) is
+    the last known-good state. See [[project_ecb_penalty_chunking_2026_08_24]]
+    for the full comparison. Lesson: validate retrieval ranking changes
+    against the real pipeline (rewritten query, RRF, rerank), not a raw-SQL
+    proxy — the same lesson the ECB chunking fix already taught once.
     """
     sql = """
         WITH q AS (
@@ -173,7 +176,7 @@ async def _bm25_retrieve(
         SELECT
             chunk_id, document, citation, authority, section_path,
             content, content_with_prefix, parent_chunk_id,
-            ts_rank_cd(content_tsv, to_tsquery('english', q.tsq), 5) AS score
+            ts_rank_cd(content_tsv, to_tsquery('english', q.tsq)) AS score
         FROM app.health_code_chunks, q
         WHERE content_tsv @@ to_tsquery('english', q.tsq)
         ORDER BY score DESC
