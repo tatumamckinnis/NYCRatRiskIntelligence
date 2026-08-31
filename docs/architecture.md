@@ -54,7 +54,7 @@ flowchart TD
         R2[Embeddings\nvoyage-3 + BGE-M3\ndev only — see ADR 0007]
         R3[Retrieval\nBM25 only in prod\nBM25 + dense + RRF in dev]
         R4[Reranker\nBGE v2-M3 dev only\ndisabled in prod — ADR 0007]
-        R5[Generation\nGroq llama-3.3-70b-versatile\nsee ADR 0006]
+        R5[Generation\nGroq openai/gpt-oss-120b\nsee ADR 0006]
     end
 
     subgraph API["FastAPI Backend  ·  Render"]
@@ -149,12 +149,12 @@ sequenceDiagram
     participant DB as tsvector (BM25)
 
     C->>API: POST /chat {"message": "What is the fine for rat violations?"}
-    API->>Groq: Query rewriting — llama-3.1-8b-instant (expand statutory terms)
+    API->>Groq: Query rewriting — openai/gpt-oss-20b (expand statutory terms)
     Groq-->>API: rewritten_query
     API->>DB: BM25 search (plainto_tsquery ts_rank_cd, top-30)
     DB-->>API: 30 ranked chunks
     Note over API: Dense search + RRF + BGE Reranker<br/>run in dev only (disabled in prod — ADR 0007)
-    API->>Groq: generate — llama-3.3-70b-versatile (system_prompt + query + chunks)
+    API->>Groq: generate — openai/gpt-oss-120b (system_prompt + query + chunks)
     Groq-->>C: SSE stream {type: "chunk"|"citation"|"done"}
 ```
 

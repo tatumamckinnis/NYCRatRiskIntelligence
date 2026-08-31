@@ -81,11 +81,11 @@ The legal Q&A component retrieves from five NYC Health Code sources:
 - DOHMH Enforcement Fact Sheet
 - NYC Department of Buildings rodent-adjacent code sections
 
-**Chunking:** Section-aware hierarchical splitting at 800 tokens with 100-token overlap, preserving section headers as chunk metadata. This gives 1,190 chunks total.
+**Chunking:** Section-aware hierarchical splitting at 800 tokens with 100-token overlap, preserving section headers as chunk metadata. This gives 1,280 chunks total.
 
 **Retrieval:** BM25 (PostgreSQL `tsvector` + `plainto_tsquery`) + dense cosine search (pgvector HNSW, BGE-M3 1024-dim) fused with Reciprocal Rank Fusion (k=60). BGE Reranker v2-M3 selects top-6 chunks for generation.
 
-**Degraded mode:** On Render free tier (512 MB RAM), both BGE-M3 and the Reranker are disabled via env var. BM25-only retrieval provides acceptable precision for well-formed legal queries but lower recall on terminology variations.
+**Degraded mode:** On Render free tier (512 MB RAM), both BGE-M3 and the Reranker are disabled via env var. BM25-only retrieval handles well-formed legal queries (statute numbers, exact terms) reasonably well, but a later investigation (see ADR-0007's 2026-08-30 update) found the real cost is bigger than "lower recall on terminology variations" suggests: a k=5-to-100 recall sweep against the gold set shows roughly 62% of expected citations are never matched by BM25 at any window size — this is a hard lexical-search ceiling, not a tunable ranking parameter. Closing it needs dense retrieval back, which needs 2GB RAM ($25/mo Render Standard).
 
 **Generation:** Groq (free tier) with a structured prompt that requires the model to cite section numbers from retrieved chunks. Citations are extracted with a regex and surfaced in the UI as linked badges.
 
@@ -123,7 +123,7 @@ The second surprise: Render free tier shuts down after 15 minutes of inactivity.
 | Fusion ensemble PR-AUC | — | **0.7975** |
 | TFT val_loss | — | **0.163** |
 | Top-decile lift | ≥ 1.4× | **1.53×** |
-| RAG corpus | ≥ 50 chunks | **1,190 chunks** |
+| RAG corpus | ≥ 50 chunks | **1,280 chunks** |
 | Monthly infra cost | ≤ $50 | **$0** |
 
 Live demo: [web-beige-three-56.vercel.app](https://web-beige-three-56.vercel.app)
