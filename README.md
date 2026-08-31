@@ -28,7 +28,7 @@ not where residents complain.
 | Full ensemble (fusion) PR-AUC | **0.7975** |
 | TFT validation loss | **0.163** |
 | Top-decile lift | **1.53×** |
-| RAG corpus | 1,190 chunks (5 legal sources) |
+| RAG corpus | 1,280 chunks (5 legal sources) |
 | NTAs modelled | 223 |
 | Panel weeks | 156 (May 2023 – May 2026) |
 
@@ -47,7 +47,7 @@ not where residents complain.
 │               FastAPI (Render free tier)             │
 │  /risk/map   /risk/nta/{id}   /chat (SSE)           │
 │  CatBoost + TFT + Fusion meta-learner               │
-│  BGE-M3 + BM25 + RRF hybrid retrieval              │
+│  BGE-M3 + BM25 + RRF (dev) — BM25-only in prod       │
 └────────────────────┬────────────────────────────────┘
                      │ asyncpg
 ┌────────────────────▼────────────────────────────────┐
@@ -71,7 +71,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full diagram and [`SP
 | Tabular model | CatBoost (primary) + LightGBM + LR baselines |
 | Temporal model | Darts TFT + Chronos-2 challenger |
 | Fusion | Stacked logistic regression meta-learner + isotonic calibration |
-| RAG retrieval | BM25 (`tsvector`) + pgvector HNSW + RRF (k=60) |
+| RAG retrieval | BM25 (`tsvector`) + pgvector HNSW + RRF (k=60) in dev; **BM25-only in prod** — see Known limitations |
 | LLM | Groq (free tier, generation); BGE-M3 (embeddings, self-hosted) |
 | Observability | OpenInference spans → JSONL sink |
 | Hosting | Render free (API) + Vercel Hobby (web) + Supabase Free (DB) |
@@ -88,7 +88,7 @@ See [`docs/architecture.md`](docs/architecture.md) for the full diagram and [`SP
 | DOB Permits | 942k | Construction disturbance signal |
 | PLUTO (DCP) | 858k lots | Static building features |
 | NOAA/Meteostat Weather | 2,269 days | Central Park station |
-| NYC Health Code (RAG corpus) | 1,190 chunks | 5 PDF sources |
+| NYC Health Code (RAG corpus) | 1,280 chunks | 5 PDF sources |
 
 ---
 
